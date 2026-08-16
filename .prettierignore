@@ -1,0 +1,10 @@
+dist/
+.astro/
+node_modules/
+package-lock.json
+
+# Prose is wrapped by hand to the rules in docs/style.md. Prettier reflows it into
+# something that reads like a machine wrote it, which is exactly what that file forbids.
+*.md
+LICENSE
+LICENSE-MIT-accessible-astro-dashboard

@@ -1,0 +1,62 @@
+---
+import DashboardLayout from '../../layouts/dashboard-layout.astro';
+import { fetchGuilds } from '../../lib/discord-oauth';
+
+export const prerender = false;
+
+const session = Astro.locals.session!;
+
+// Discord's guild list is fetched here rather than carried in the session cookie: a
+// raider in fifty guilds would push the cookie past 4KB, and this page is the only one
+// that needs the list.
+const guilds = await fetchGuilds(session.accessToken);
+const rejected = Astro.url.searchParams.get('error') === 'guild';
+---
+
+<DashboardLayout title="Choose a guild">
+  <p class="muted">
+    Every Discord server you are in is listed. Raider Mate only has data for the ones running it, so
+    the rest will look empty.
+  </p>
+
+  {rejected && <p class="notice">That guild is not one of yours. Pick one from the list.</p>}
+
+  <ul>
+    {
+      guilds.map((guild) => (
+        <li>
+          <form method="post" action="/guild/select">
+            <input type="hidden" name="guild_id" value={guild.id} />
+            <button
+              class="button button--quiet"
+              type="submit"
+              aria-current={session.selectedGuildId === guild.id ? 'true' : undefined}
+            >
+              {guild.name}
+            </button>
+          </form>
+        </li>
+      ))
+    }
+  </ul>
+</DashboardLayout>
+
+<style>
+  ul {
+    list-style: none;
+    margin: 1rem 0 0;
+    padding: 0;
+    display: grid;
+    gap: 0.5rem;
+  }
+
+  button {
+    width: 100%;
+    text-align: left;
+  }
+
+  button[aria-current='true'] {
+    border-color: var(--accent);
+    color: var(--accent);
+  }
+</style>

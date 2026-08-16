@@ -1,0 +1,24 @@
+# Caddy terminates TLS and forwards to the Astro node process. Change the site address
+# to the real hostname in production; Caddy then provisions the certificate itself.
+#
+# Everything below the address is policy the dashboard cannot set for itself: HSTS and
+# the frame ancestors rule have to be on the response before any page runs.
+
+:80 {
+	encode zstd gzip
+
+	header {
+		# The dashboard renders a guild's roster and raid times. Nothing here belongs
+		# in someone else's iframe or in a search index.
+		X-Frame-Options DENY
+		X-Content-Type-Options nosniff
+		Referrer-Policy same-origin
+
+		# No third-party scripts, no CDN, no remote images beyond Discord avatars.
+		Content-Security-Policy "default-src 'self'; img-src 'self' https://cdn.discordapp.com data:; style-src 'self' 'unsafe-inline'; frame-ancestors 'none'; form-action 'self'; base-uri 'none'"
+
+		-Server
+	}
+
+	reverse_proxy dashboard:4321
+}

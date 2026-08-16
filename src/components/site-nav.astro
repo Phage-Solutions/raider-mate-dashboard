@@ -1,0 +1,50 @@
+---
+const current = Astro.url.pathname;
+
+// Roster and events arrive in the next phase. Listing them now would be a nav that
+// lies about what exists.
+const items = [{ href: '/', label: 'Overview' }];
+---
+
+<nav aria-label="Main">
+  <ul>
+    {
+      items.map((item) => (
+        <li>
+          <a href={item.href} aria-current={current === item.href ? 'page' : undefined}>
+            {item.label}
+          </a>
+        </li>
+      ))
+    }
+  </ul>
+</nav>
+
+<style>
+  ul {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 0.25rem;
+  }
+
+  a {
+    display: block;
+    padding: 0.5rem 0.75rem;
+    border-radius: var(--radius);
+    color: var(--text);
+    text-decoration: none;
+  }
+
+  a:hover {
+    background: var(--surface-sunken);
+  }
+
+  a[aria-current='page'] {
+    background: var(--surface-sunken);
+    color: var(--accent);
+    font-weight: 600;
+  }
+</style>

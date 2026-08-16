@@ -101,24 +101,64 @@ The comp builder. Drag-and-drop assignment with concurrent raid lead edits is be
 by definition and is the one genuinely hard screen in the product. The template
 provides the shell: sidebar layout, auth pages, table components, chart setup.
 
-### Changes already made to the scaffold
+### How the template was actually used
 
-- Demo pages removed (products, messages, media). `users` became `roster`; `events`
-  added.
-- `src/islands/` and `src/lib/` added, with a typed HATEOAS-aware API client stub.
-- `tsconfig.json` added; the template shipped without one.
-- The template's fake email/password login, which stored a flag in `localStorage` and
-  gated every page on it client-side, was removed. Replaced with a placeholder linking
-  to `/auth/discord`. Real Discord OAuth2 is still to be built, enforced server-side.
-- Nav links repointed at the pages that actually exist.
+Not cloned. The repo is a fresh Astro 7 project, and the shell was ported by hand: the
+skip link, the landmark structure, the focus-visible outlines, and the sidebar nav. The
+template's own copy of those was written against Astro 1.x, so cloning it would have
+meant an upgrade before the first line of Raider Mate code, and its demo pages, charts
+and fake login would have arrived as things to delete rather than things to use.
 
-### Still outstanding
+The MIT licence still applies to what was ported and is kept in
+`LICENSE-MIT-accessible-astro-dashboard`. Its SCSS was not: the styles here are plain
+CSS with custom properties, which drops the Dart Sass deprecation warnings and one
+dependency.
 
-- Upgrade Astro from 1.x, and `sass` alongside it.
-- Replace `LICENSE` with the canonical AGPL-3.0 text from gnu.org.
-- Build the real OAuth2 flow.
+## 6. Session and actor
 
-## 6. What this repo does not decide
+The service authenticates with a shared API key and four self-asserted headers:
+`X-Actor-Discord-Id`, `X-Actor-Guild-Id`, `X-Actor-Roles` and `X-Actor-Guild-Admin`. It
+performs no verification of its own; it resolves raid-lead capability from the role ids
+it is handed. The bot has the same deal.
+
+That makes this dashboard, not the service, the place where "who is this" is decided,
+and it has two consequences worth stating plainly.
+
+The API key never reaches a browser. Every service call happens in page frontmatter or
+an API route, and `astro.config.mjs` declares the key as an `astro:env` secret so that
+importing it from an island fails the build rather than the deploy.
+
+Nothing that ends up in an actor header may originate in the browser. The guild id
+comes from the sealed session cookie, and the only route that changes it
+(`POST /guild/select`) checks the requested guild against the user's real Discord guild
+list first. Without that check, a snowflake typed into a form field reads another
+guild's roster.
+
+The session is an AES-GCM sealed cookie, `httpOnly` and `SameSite=Lax`, with no
+server-side store: this repo has no database and does not want one. It holds the Discord
+tokens, the selected guild, and the role ids in that guild. It deliberately does not
+hold the user's full guild list, which the picker fetches live, because a raider in
+fifty guilds would push the cookie past the 4KB limit and fail in a way that looks like
+a login bug.
+
+Role ids are re-read from Discord every 15 minutes. A raider promoted to raid lead
+mid-session waits at most that long, and the service re-resolves capability from those
+ids on every request, so the staleness window is entirely on this side.
+
+## 7. Still outstanding
+
+- Roster view and event view. The overview page currently lists upcoming events only to
+  prove the chain from sign-in to an authenticated API call works.
+- CSRF beyond form posts. Two things cover what exists today: the session cookie is
+  `SameSite=Lax`, and Astro's `security.checkOrigin` (on by default) answers 403 to a
+  form `POST` whose `Origin` is not this site. Verified, not assumed. That check keys
+  on form content types, so the moment an island posts JSON to an API route, the route
+  needs its own token.
+- Knowing which guilds run Raider Mate. The picker lists every Discord server the user
+  is in, because the service has no endpoint that says which ones it knows about. An
+  unregistered guild renders empty, which is honest but not friendly.
+
+## 8. What this repo does not decide
 
 Whether a signup is valid, how the assigner ranks candidates, who is benched, and what
 counts as a Premium feature are all service-side. This repo displays what the API

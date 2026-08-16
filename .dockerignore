@@ -1,0 +1,9 @@
+.git
+.idea
+node_modules
+dist
+.astro
+.env
+Caddyfile
+docker-compose.yml
+Dockerfile

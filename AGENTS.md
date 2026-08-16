@@ -20,29 +20,28 @@ Do not load them by default.
 
 ## Stack
 
-- Astro. SSR pages plus interactive islands for anything genuinely stateful.
-- Discord OAuth2 for login.
+- Astro 7, `output: 'server'` with `@astrojs/node` standalone. SSR pages plus
+  interactive islands for anything genuinely stateful.
+- Discord OAuth2 for login. Session is an AES-GCM sealed cookie, no server-side store.
+- Plain CSS with custom properties. No Sass, no Tailwind, no React.
 - Fetches against the `raider-mate-service` API. No direct database access.
+- Caddy in front of the node process in the container. See `Caddyfile`.
 
-Scaffolded from [accessible-astro-dashboard](https://github.com/incluud/accessible-astro-dashboard)
-by Mark Teekman, MIT. The template's MIT licence is preserved in
+The dashboard shell (skip link, landmarks, focus outlines, sidebar nav) was ported by
+hand from [accessible-astro-dashboard](https://github.com/incluud/accessible-astro-dashboard)
+by Mark Teekman, MIT. Its licence is preserved in
 `LICENSE-MIT-accessible-astro-dashboard`, as its terms require. Raider Mate code added
 on top is AGPL-3.0-or-later.
 
-**The template pins Astro 1.x.** Run `npx @astrojs/upgrade` and fix the breakage before
-writing new pages against the old API. Also upgrade `sass`; the template's SCSS emits
-Dart Sass legacy API deprecation warnings.
-
 ## Commands
-
-<!-- Fill these in as the repo takes shape. Exact commands matter more than prose. -->
 
 ```
 make dev     # astro dev server, pointed at a running raider-mate-service
 make build   # astro build
 make check   # astro check (type and template errors)
-make test    # test runner, once chosen
-make lint    # linter, once chosen
+make test    # vitest over the pure parts of src/lib
+make lint    # eslint and prettier
+make up      # docker compose: dashboard behind caddy on :8081
 ```
 
 See hard rule 9 for when these have to run. In short: `make check`, `make build`,

@@ -1,0 +1,79 @@
+---
+import DashboardLayout from '../layouts/dashboard-layout.astro';
+import { ServiceError, ServiceUnreachableError } from '../lib/service-error';
+import type { Event } from '../lib/service-types';
+
+export const prerender = false;
+
+const { session, actor, client } = Astro.locals;
+
+if (!session!.selectedGuildId) {
+  return Astro.redirect('/guild');
+}
+
+// The proof that the whole chain works: sealed cookie to actor headers to a service
+// response with its links intact. The roster and event views replace this next phase.
+let events: Event[] = [];
+let failure: string | null = null;
+
+try {
+  events = await client.get<Event[]>(actor, `/api/guilds/${session!.selectedGuildId}/events`);
+} catch (error) {
+  if (error instanceof ServiceUnreachableError) {
+    failure = 'Raider Mate is not answering right now.';
+  } else if (error instanceof ServiceError) {
+    failure = error.isSafe() ? error.serviceMessage : 'Raider Mate had a problem with that.';
+  } else {
+    throw error;
+  }
+}
+---
+
+<DashboardLayout title="Overview">
+  {failure && <p class="notice">{failure}</p>}
+
+  {
+    !failure && events.length === 0 && (
+      <p class="muted">
+        No upcoming events in {session!.selectedGuildName}. If that is a surprise, the guild may not
+        be running Raider Mate yet.
+      </p>
+    )
+  }
+
+  {
+    events.length > 0 && (
+      <ul>
+        {events.map((event) => (
+          <li class="card">
+            <h2>{event.title}</h2>
+            <p class="muted">
+              {event.type}
+              {event.difficulty ? ` ${event.difficulty}` : ''}, starts{' '}
+              <time datetime={event.starts_at}>{event.starts_at}</time>
+            </p>
+            <p class="muted">What you can do here: {Object.keys(event._links).sort().join(', ')}</p>
+          </li>
+        ))}
+      </ul>
+    )
+  }
+</DashboardLayout>
+
+<style>
+  ul {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    display: grid;
+    gap: 0.75rem;
+  }
+
+  h2 {
+    font-size: 1.1rem;
+  }
+
+  p {
+    margin: 0.25rem 0 0;
+  }
+</style>

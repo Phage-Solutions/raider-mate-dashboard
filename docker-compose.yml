@@ -1,0 +1,28 @@
+services:
+  dashboard:
+    build: .
+    env_file: .env
+    environment:
+      HOST: 0.0.0.0
+      PORT: 4321
+    # No published port. Caddy is the only thing that should be able to reach it, and
+    # the node process speaks plain http.
+    expose:
+      - '4321'
+    restart: unless-stopped
+
+  caddy:
+    image: caddy:2-alpine
+    ports:
+      - '8081:80'
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data
+      - caddy-config:/config
+    depends_on:
+      - dashboard
+    restart: unless-stopped
+
+volumes:
+  caddy-data:
+  caddy-config:
