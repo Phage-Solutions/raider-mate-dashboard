@@ -136,6 +136,30 @@ const signedUp = new Set(signups.map((signup) => signup.character_id));
 const unsigned = mine.filter((character) => !signedUp.has(character.id));
 const now = new Date();
 
+/**
+ * Who runs this raid, read from the event's own links. The service offers late-requests
+ * to a raid lead and to nobody else, so the answer travels with the resource instead of
+ * being recomputed here from role ids, which is the drift hard rule 2 exists to stop.
+ */
+const mayLead = event ? hasLink(event, 'late-requests') : false;
+
+const mineIds = new Set(mine.map((character) => character.id));
+const isMine = (signup: Signup) => mineIds.has(signup.character_id);
+
+/**
+ * A raider came here to answer for themselves and gets their own characters. A raid lead
+ * came to read the room and gets everyone, with their own pinned on top.
+ *
+ * This is what the page puts in front of you, not what you are allowed to see: the
+ * service hands every signup to every member of the guild, and the bot's own post in
+ * Discord shows the whole roster to the channel. Twenty rows a raider cannot act on are
+ * noise between them and the one row they can.
+ */
+const ownSignups = signups.filter(isMine);
+const shown = mayLead
+  ? [...ownSignups, ...signups.filter((signup) => !isMine(signup))]
+  : ownSignups;
+
 function bench(board: Board): Assignment[] {
   return board.slots.filter((slot) => slot.is_bench);
 }
@@ -333,7 +357,14 @@ function slotName(slot: Assignment): string {
             </div>
           )}
 
-          {signups.length > 0 && (
+          {signups.length > 0 && shown.length === 0 && (
+            <div class="empty">
+              <h3>You have not answered yet</h3>
+              <p>Pick a character below. The rest of the roster is on the event post in Discord.</p>
+            </div>
+          )}
+
+          {shown.length > 0 && (
             <div class="table-wrap">
               <table>
                 <thead>
@@ -347,8 +378,8 @@ function slotName(slot: Assignment): string {
                   </tr>
                 </thead>
                 <tbody>
-                  {signups.map((signup) => (
-                    <tr>
+                  {shown.map((signup) => (
+                    <tr class:list={[isMine(signup) && 'row--mine']}>
                       <th scope="row">
                         <span class="raider">
                           <span
@@ -359,6 +390,7 @@ function slotName(slot: Assignment): string {
                           <span>
                             <span class="raider__name">
                               {signup.character?.name ?? signup.character_id}
+                              {isMine(signup) && <span class="yours">You</span>}
                             </span>
                             <span class="raider__sub">
                               {signup.character?.class ?? ''}
@@ -445,6 +477,12 @@ function slotName(slot: Assignment): string {
               </table>
             </div>
           )}
+
+          {!mayLead && shown.length > 0 && (
+            <p class="only-yours">
+              Your characters only. The whole roster is on the event post in Discord.
+            </p>
+          )}
         </section>
 
         {unsigned.length > 0 && (
@@ -525,6 +563,35 @@ function slotName(slot: Assignment): string {
 </DashboardLayout>
 
 <style>
+  /* A raid lead reads a long table looking for their own name first. Pinning the row is
+     half of it; the other half is making it findable without reading. */
+  .row--mine th,
+  .row--mine td {
+    background: color-mix(in srgb, var(--accent) 7%, transparent);
+  }
+
+  .row--mine th:first-child {
+    box-shadow: inset 3px 0 0 var(--accent);
+  }
+
+  .yours {
+    margin-left: 0.5rem;
+    padding: 0.05rem 0.3rem;
+    border-radius: var(--radius-sm);
+    background: color-mix(in srgb, var(--accent) 18%, transparent);
+    color: var(--accent);
+    font-size: var(--fs-xs);
+    font-weight: 600;
+    letter-spacing: 0.02em;
+    vertical-align: middle;
+  }
+
+  .only-yours {
+    padding: 0.75rem 1.25rem 1.25rem;
+    color: var(--text-tertiary);
+    font-size: var(--fs-sm);
+  }
+
   /* Most of an event's life is spent before the comp is locked, so the not-yet state is
      one line rather than a panel: it says the same thing and costs a signup row instead
      of a screen. */

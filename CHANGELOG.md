@@ -12,6 +12,16 @@ Sections are `Added`, `Changed`, `Deprecated`, `Removed`, `Fixed`, `Security`.
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-08-20
+
+### Changed
+
+- The signups table on an event shows a raider their own characters, and a raid lead
+  everyone, with the raid lead's own pinned on top and marked. A raider opening an event
+  came to answer for themselves, and twenty rows they cannot act on sat between them and
+  the one row they can. Nothing is hidden by this: the event post in Discord still shows
+  the whole roster to the channel, and the table says so.
+
 ## [0.1.1] - 2026-08-20
 
 ### Fixed
@@ -31,7 +41,6 @@ Sections are `Added`, `Changed`, `Deprecated`, `Removed`, `Fixed`, `Security`.
 ## [0.1.0] - 2026-08-20
 
 ### Changed
-
 - The comp leads the event page, above the signups. It is what a raid lead opens the page
   for. Before it is locked it is one line rather than an empty panel, so an event nobody
   has locked yet no longer pushes its signups most of a screen down.
