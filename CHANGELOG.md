@@ -12,6 +12,8 @@ Sections are `Added`, `Changed`, `Deprecated`, `Removed`, `Fixed`, `Security`.
 
 ## [Unreleased]
 
+## [0.1.0] - 2026-08-20
+
 ### Changed
 
 - The comp leads the event page, above the signups. It is what a raid lead opens the page
