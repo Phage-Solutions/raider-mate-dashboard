@@ -1,0 +1,70 @@
+name: CI
+
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+
+jobs:
+  dco:
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - name: check commits are signed off
+        run: |
+          missing=0
+          for sha in $(git rev-list "${{ github.event.pull_request.base.sha }}..${{ github.event.pull_request.head.sha }}"); do
+            if ! git log -1 --format=%B "$sha" | grep -qE '^Signed-off-by: .+ <.+>$'; then
+              echo "::error::commit $sha ($(git log -1 --format=%s "$sha")) is missing a Signed-off-by trailer"
+              missing=1
+            fi
+          done
+          exit "$missing"
+
+  check-build-test-lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      # Pinned to the major the Dockerfile runs, not to the floor in package.json's
+      # engines. CI passing on a node the image never uses proves the wrong thing.
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '26'
+          cache: npm
+
+      - run: npm ci
+
+      # In the order the repo requires them: astro fails differently from a compiler,
+      # and only a full build walks every page.
+      - name: check
+        run: npm run check
+
+      - name: build
+        run: npm run build
+
+      - name: lint
+        run: npm run lint
+
+      - name: test
+        run: npm test
+
+  docker:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: docker/setup-buildx-action@v4
+
+      # Build only. A Dockerfile regression should fail on the PR, not on tag day when
+      # the release workflow is the first thing to touch it.
+      - uses: docker/build-push-action@v7
+        with:
+          context: .
+          push: false
+          cache-from: type=gha,scope=dashboard
+          cache-to: type=gha,mode=max,scope=dashboard

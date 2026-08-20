@@ -1,9 +1,9 @@
 .git
+.github
 .idea
+.impeccable
 node_modules
 dist
 .astro
 .env
-Caddyfile
 docker-compose.yml
-Dockerfile

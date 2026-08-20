@@ -43,6 +43,16 @@ Sections are `Added`, `Changed`, `Deprecated`, `Removed`, `Fixed`, `Security`.
   this far, find four blank pages, and have nothing to click. The events list only offers
   it for upcoming raids: an empty Past list is a guild that has not raided yet, not a
   guild missing the bot.
+- A container image that runs the whole dashboard: Caddy on port 8080 in front of the
+  node process on loopback, both inside it, as a non-root user. Scaleway's Serverless
+  Containers run one container on one port and terminate TLS at the edge, so Caddy's
+  automatic HTTPS is off and it never sees the public hostname. If either half dies the
+  container exits, so the platform replaces a broken one rather than leaving it serving
+  502s from the half still alive.
+- CI on every push and pull request: check, build, lint, tests, and a Docker build, plus
+  a sign-off check on pull requests. Tagging a release publishes the image to
+  `ghcr.io/raider-mate/raider-mate-dashboard` and cuts a GitHub Release from this file,
+  and refuses to do either if the tag has no section here.
 - The dashboard itself: an Astro 7 application, server-rendered, running behind Caddy
   in the container described by `Dockerfile` and `docker-compose.yml`.
 - Discord sign-in. The dashboard asks for `identify`, `guilds` and
