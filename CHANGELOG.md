@@ -12,15 +12,19 @@ Sections are `Added`, `Changed`, `Deprecated`, `Removed`, `Fixed`, `Security`.
 
 ## [Unreleased]
 
+## [0.2.1] - 2026-08-20
+
+### Changed
+
+- Changed roster visibility
+
 ## [0.2.0] - 2026-08-20
 
 ### Changed
 
-- The signups table on an event shows a raider their own characters, and a raid lead
-  everyone, with the raid lead's own pinned on top and marked. A raider opening an event
-  came to answer for themselves, and twenty rows they cannot act on sat between them and
-  the one row they can. Nothing is hidden by this: the event post in Discord still shows
-  the whole roster to the channel, and the table says so.
+- Your own characters sit at the top of an event's signups table, marked, above the rest
+  of the roster. Everyone still reads the whole roster; the row you can actually answer
+  for is just no longer somewhere down a column of thirty.
 
 ## [0.1.1] - 2026-08-20
 
