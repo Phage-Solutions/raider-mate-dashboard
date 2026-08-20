@@ -51,7 +51,7 @@ Sections are `Added`, `Changed`, `Deprecated`, `Removed`, `Fixed`, `Security`.
   502s from the half still alive.
 - CI on every push and pull request: check, build, lint, tests, and a Docker build, plus
   a sign-off check on pull requests. Tagging a release publishes the image to
-  `ghcr.io/raider-mate/raider-mate-dashboard` and cuts a GitHub Release from this file,
+  `ghcr.io/phage-solutions/raider-mate-dashboard` and cuts a GitHub Release from this file,
   and refuses to do either if the tag has no section here.
 - The dashboard itself: an Astro 7 application, server-rendered, running behind Caddy
   in the container described by `Dockerfile` and `docker-compose.yml`.
