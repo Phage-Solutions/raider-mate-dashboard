@@ -12,13 +12,25 @@ interface Props {
   compName: string;
   cards: Card[];
   state: BoardState;
+  /** The comp's `save` link, as the page found it. Without one this is a picture. */
+  canSave: boolean;
   difficulty: RaidDifficulty | undefined;
   eventTitle: string;
 }
 
-const { eventId, compName, cards, state, difficulty, eventTitle } = Astro.props;
+const { eventId, compName, cards, state, canSave, difficulty, eventTitle } = Astro.props;
 
 const byId = new Map(cards.map((card) => [card.characterId, card]));
+
+/*
+ * A raider that can be picked up is a button; one that can only be read is not. The tag
+ * carries the whole difference, so there is still one copy of the card markup here and
+ * a reader's board announces itself correctly without any aria-disabled bookkeeping.
+ */
+const CardTag = canSave ? 'button' : 'div';
+const cardAttrs: Record<string, string> = canSave
+  ? { type: 'button', 'aria-pressed': 'false' }
+  : {};
 
 /**
  * Bench and the tray head their own columns. "Available" rather than "Signups", because
@@ -49,8 +61,9 @@ const payload = JSON.stringify({ state }).replace(/</g, '\\u003c');
 ---
 
 <section
-  class="builder"
+  class:list={['builder', !canSave && 'builder--reading']}
   data-builder
+  data-editable={canSave ? '' : undefined}
   data-event={eventId}
   data-comp={compName}
   aria-label={`${compName} comp board`}
@@ -61,10 +74,16 @@ const payload = JSON.stringify({ state }).replace(/</g, '\\u003c');
       <span data-benched>{state.columns.BENCH.length}</span> benched
     </p>
 
-    <div class="bar__actions">
-      <span class="bar__msg" data-message role="status" aria-live="polite"></span>
-      <button class="button button--quiet" type="button" data-save disabled>Save comp</button>
-    </div>
+    {
+      canSave && (
+        <div class="bar__actions">
+          <span class="bar__msg" data-message role="status" aria-live="polite" />
+          <button class="button button--quiet" type="button" data-save disabled>
+            Save comp
+          </button>
+        </div>
+      )
+    }
   </div>
 
   <div class="board" data-board>
@@ -112,13 +131,12 @@ const payload = JSON.stringify({ state }).replace(/</g, '\\u003c');
               const hue = ROLE_HUES[state.roles[id]!];
               return (
                 <li>
-                  <button
+                  <CardTag
                     class="card"
-                    type="button"
+                    {...cardAttrs}
                     data-card={id}
                     data-name={card.name}
                     data-roles={card.declaredRoles.join(',')}
-                    aria-pressed="false"
                     style={`--hue: ${hue}; --class: ${classColor(card.class) ?? 'var(--border-strong)'}`}
                   >
                     <span class="card__mark" aria-hidden="true" />
@@ -144,21 +162,21 @@ const payload = JSON.stringify({ state }).replace(/</g, '\\u003c');
                         <span class="visually-hidden">{STATUS_LABELS[card.status]}</span>
                       </span>
                     )}
-                  </button>
+                  </CardTag>
                 </li>
               );
             })}
           </ul>
 
           <p class="col__empty" data-empty hidden={state.columns[column].length > 0}>
-            Drop a raider here
+            {canSave ? 'Drop a raider here' : 'Nobody here'}
           </p>
         </section>
       ))
     }
   </div>
 
-  <p class="visually-hidden" data-live aria-live="polite"></p>
+  {canSave && <p class="visually-hidden" data-live aria-live="polite" />}
   <script type="application/json" data-payload is:inline set:html={payload} />
 </section>
 
@@ -227,12 +245,13 @@ const payload = JSON.stringify({ state }).replace(/</g, '\\u003c');
     // Asserted rather than guarded: this component renders all four itself, a few dozen
     // lines up. A guard here would be checking its own markup for typos.
     const payloadEl = root.querySelector<HTMLScriptElement>('[data-payload]')!;
-    const saveButton = root.querySelector<HTMLButtonElement>('[data-save]')!;
-    const message = root.querySelector<HTMLElement>('[data-message]')!;
-    const live = root.querySelector<HTMLElement>('[data-live]')!;
     const board = root.querySelector<HTMLElement>('[data-board]')!;
     const beams = root.querySelector<SVGSVGElement>('[data-beams]')!;
     const sigil = root.querySelector<HTMLElement>('[data-sigil]')!;
+
+    // Set by the component from the comp's `save` link. Everything that moves a raider
+    // hangs off it, so a reader's board never has a drag handler to find.
+    const editable = root.dataset.editable !== undefined;
 
     let state = (JSON.parse(payloadEl.textContent!) as { state: BoardState }).state;
     let saved = state;
@@ -245,10 +264,6 @@ const payload = JSON.stringify({ state }).replace(/</g, '\\u003c');
     const cards = () => [...root.querySelectorAll<HTMLElement>('[data-card]')];
 
     const nameOf = (id: string) => cardEl(id).dataset.name ?? id;
-
-    function announce(text: string) {
-      live.textContent = text;
-    }
 
     /**
      * Where every card is on screen right now. Taken before a move and again after, so
@@ -543,6 +558,33 @@ const payload = JSON.stringify({ state }).replace(/</g, '\\u003c');
           trail(node, i * STEP);
         }
       });
+    }
+
+    // The beams are geometry, so they are wrong the moment the board reflows.
+    const sizing = new ResizeObserver(drawBeams);
+    sizing.observe(board);
+    teardown.push(() => sizing.disconnect());
+
+    heckle(root);
+
+    /*
+     * A board nobody may move is finished here. The page rendered it whole, counts and
+     * hues and all, so there is nothing to reconcile and nothing to wire up: the beams
+     * and the marker are the entire script. Returning before the listeners exist is what
+     * makes it read-only, rather than a drag that gets refused somewhere later.
+     */
+    if (!editable) {
+      drawBeams();
+      root.classList.add('builder--live');
+      return;
+    }
+
+    const saveButton = root.querySelector<HTMLButtonElement>('[data-save]')!;
+    const message = root.querySelector<HTMLElement>('[data-message]')!;
+    const live = root.querySelector<HTMLElement>('[data-live]')!;
+
+    function announce(text: string) {
+      live.textContent = text;
     }
 
     /** One card per column in the tab order, so Tab crosses columns instead of raiders. */
@@ -871,13 +913,6 @@ const payload = JSON.stringify({ state }).replace(/</g, '\\u003c');
     };
     addEventListener('beforeunload', unsaved);
     teardown.push(() => removeEventListener('beforeunload', unsaved));
-
-    // The beams are geometry, so they are wrong the moment the board reflows.
-    const sizing = new ResizeObserver(drawBeams);
-    sizing.observe(board);
-    teardown.push(() => sizing.disconnect());
-
-    heckle(root);
 
     reconcile();
     root.classList.add('builder--live');
@@ -1285,14 +1320,20 @@ const payload = JSON.stringify({ state }).replace(/</g, '\\u003c');
     color: var(--text-primary);
     font: inherit;
     text-align: left;
-    cursor: grab;
-    touch-action: none;
     transition:
       background-color var(--dur-1) var(--ease),
       border-color var(--dur-1) var(--ease);
   }
 
-  .card:hover {
+  /* Selected on the tag rather than a class: a card only carries a grab cursor and a
+     hover when it is the button form, which is the form that can actually be picked up.
+     A reader's card is a div and gets neither. */
+  button.card {
+    cursor: grab;
+    touch-action: none;
+  }
+
+  button.card:hover {
     background: var(--hover);
     border-color: var(--border);
   }

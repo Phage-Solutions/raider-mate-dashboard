@@ -28,6 +28,8 @@ let signups: Signup[] = [];
 let timezone: string | null = null;
 let failure: string | null = null;
 let canRename = false;
+let canSave = false;
+let mode: CompInfo['mode'] | null = null;
 
 // What a write route sent us back with. Codes rather than the service's own words, for
 // the same reason the event page uses them: a message round-tripped through a query
@@ -57,13 +59,16 @@ try {
    * not edit comps here" and "this comp belongs to the assigner". Nothing in this repo
    * re-derives either, and neither answer is discovered by trying the write.
    *
+   * Absent, it makes the board read-only rather than unreachable. Following the comp's
+   * own `self` link is the permission to look at it, and the service offers that link to
+   * everyone who can see the event: a raider gets the formation, the beams and the
+   * advisories, and no way to move anyone.
+   *
    * Enforced here, in frontmatter, before a single row renders.
    */
-  if (!getLink(comp, 'save')) {
-    return Astro.redirect(`${backToEvent}?notice=${comp.mode === 'AUTO' ? 'auto' : 'denied'}`);
-  }
-
+  canSave = hasLink(comp, 'save');
   canRename = hasLink(comp, 'rename');
+  mode = comp.mode;
   board = (await client.follow<Board>(actor, getLink(comp, 'self')!)).body;
   signups = (await client.follow<Signup[]>(actor, getLink(event, 'signups')!)).body;
   timezone = await fetchGuildTimezone(client, actor, guildId);
@@ -89,7 +94,20 @@ const state = board ? stateFrom(board, cards) : null;
  * "Now" is fixed at render, so a page held open across the start time does not grow the
  * banner until it is reloaded.
  */
-const started = event ? new Date(event.starts_at).getTime() <= Date.now() : false;
+const started = canSave && event ? new Date(event.starts_at).getTime() <= Date.now() : false;
+
+/*
+ * Why the board does not move, for the reader looking at it. Both answers come from the
+ * service: no `save` link, and the mode it reported. An auto comp is nobody's to edit
+ * until someone takes manual control, and a manual one belongs to the raid lead who has
+ * it. Neither sentence is this repo deciding who anyone is.
+ */
+const readOnly =
+  canSave || !mode
+    ? null
+    : mode === 'AUTO'
+      ? 'On auto. The assigner rebuilds this board every time it is locked.'
+      : "Read only. This board is the raid lead's to arrange.";
 ---
 
 <DashboardLayout title={compName} titleTransition={`comp-${eventId}-${compName}`}>
@@ -145,6 +163,15 @@ const started = event ? new Date(event.starts_at).getTime() <= Date.now() : fals
     )
   }
 
+  {
+    readOnly && (
+      <p class="readonly">
+        <span class="readonly__dot" aria-hidden="true" />
+        {readOnly}
+      </p>
+    )
+  }
+
   <CompAdvisories advisories={board?.advisories} />
 
   {
@@ -154,16 +181,21 @@ const started = event ? new Date(event.starts_at).getTime() <= Date.now() : fals
         compName={compName}
         cards={cards}
         state={state}
+        canSave={canSave}
         difficulty={event?.difficulty}
         eventTitle={event?.title ?? 'the encounter'}
       />
     )
   }
 
-  <p class="how">
-    Drag a raider to move them. On a keyboard, Enter picks one up, the arrows move them, and Enter
-    puts them down.
-  </p>
+  {
+    canSave && (
+      <p class="how">
+        Drag a raider to move them. On a keyboard, Enter picks one up, the arrows move them, and
+        Enter puts them down.
+      </p>
+    )
+  }
 </DashboardLayout>
 
 <style>
@@ -201,6 +233,29 @@ const started = event ? new Date(event.starts_at).getTime() <= Date.now() : fals
     flex: none;
     border-radius: var(--radius-full);
     background: var(--warning);
+  }
+
+  /* Neither a warning nor a refusal: the board is fine, it is simply not yours. It takes
+     the quietest treatment on the page for that reason. */
+  .readonly {
+    display: flex;
+    gap: 0.625rem;
+    align-items: center;
+    margin-bottom: 1.25rem;
+    padding: 0.625rem 1rem;
+    border: 1px solid var(--border);
+    border-radius: var(--radius-lg);
+    background: var(--surface);
+    color: var(--text-secondary);
+    font-size: var(--fs-sm);
+  }
+
+  .readonly__dot {
+    width: 6px;
+    height: 6px;
+    flex: none;
+    border-radius: var(--radius-full);
+    background: var(--text-tertiary);
   }
 
   .how {

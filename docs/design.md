@@ -73,9 +73,15 @@ them as information, never as errors, and never as something blocking a save.
 
 The builder is `src/islands/comp-builder.astro`, reached at
 `/events/{id}/comp/{name}` and nowhere else. The route is the auth boundary: it looks
-for the comp's `save` link in frontmatter and redirects when it is absent. That one
-lookup is the whole permission decision, because the service sends `save` only to a raid
-lead and only on a manual comp.
+for the comp's `save` link in frontmatter. That one lookup is the whole permission
+decision, because the service sends `save` only to a raid lead and only on a manual comp.
+
+Absent, the board renders read-only rather than not at all. Following the comp's own
+`self` link is the permission to look at it, and the service offers that link to
+everyone who can see the event, which is why the event page already draws every board
+for every raider. A reader gets the formation, the beams, the marker and the advisories;
+the cards render as `div`s instead of `button`s and the script returns before a single
+listener is attached, so there is nothing to pick up rather than a drag refused later.
 
 Three things follow from the link set rather than from a preference:
 

@@ -114,7 +114,7 @@ const mark = (className: string) => classColor(className) ?? 'var(--border-stron
 
 <BaseLayout
   title="Raid signups and comps for WoW guilds"
-  description="A Discord bot that takes your raid signups, and a dashboard that turns them into a composition you can overrule. Free and self-hostable, AGPLv3."
+  description="A Discord bot that takes your raid signups, and a dashboard that turns them into a composition you can overrule. Free to use, free to self-host, AGPLv3."
   indexable
 >
   <PublicHeader />
@@ -147,7 +147,7 @@ const mark = (className: string) => classColor(className) ?? 'var(--border-stron
             <a class="button button--quiet button--lg" href="/auth/discord">Sign in with Discord</a>
           </div>
           <p class="fine">
-            Free and self-hostable. AGPLv3.{' '}
+            Free to use, on our instance or your own. AGPLv3.{' '}
             <a href={ORG_URL} rel="noreferrer">Read the source</a>
           </p>
         </section>
@@ -279,7 +279,17 @@ const mark = (className: string) => classColor(className) ?? 'var(--border-stron
     </div>
 
     <section class="pricing">
-      <h2>Free to run yourself.</h2>
+      <h2>Free, hosted or not.</h2>
+      {
+        /* Hosting is not the paid part and the plans have to say so, because a page with
+          one free column and one priced column reads as "free if you run it yourself".
+          Everything the raid week above describes is free on our instance too. Premium
+          is the analysis that builds up behind it. */
+      }
+      <p class="pricing__lede">
+        Everything on this page is free on our instance. Premium is the season's worth of analysis
+        that builds up behind it.
+      </p>
       <div class="plans">
         <div class="plan">
           <h3>Self-hosted</h3>
@@ -296,12 +306,35 @@ const mark = (className: string) => classColor(className) ?? 'var(--border-stron
           </a>
         </div>
         <div class="plan plan--hosted">
+          <h3>Hosted</h3>
+          <p class="plan__price">Free</p>
+          <p>
+            We run it. Everything the raid week above describes, on our box, with nothing to pay and
+            no card to hand over.
+          </p>
+          <a class="button" href={BOT_INVITE} rel="noreferrer">
+            <svg class="glyph" viewBox="0 0 24 18" aria-hidden="true" focusable="false">
+              <path fill="currentColor" d={DISCORD_MARK}></path>
+            </svg>
+            Add the bot to your server
+          </a>
+        </div>
+        <div class="plan">
           <h3>Hosted Premium</h3>
           <p class="plan__price">
             €2.99<span>a month</span>
           </p>
           <p class="plan__alt">or €29.99 a year. VAT included, billed through Stripe.</p>
-          <p>We run it, keep it upgraded, and the analysis views come with it.</p>
+          <p>
+            Adds the analysis. Attendance trends and gear gaps, night after night, per Discord
+            server.
+          </p>
+          {
+            /* The same thing the terms say, on the page that quotes the price. There is no
+              billing in the service yet, so a card reading €2.99 beside a sign-in button
+              would be selling something nobody can buy. */
+          }
+          <p class="plan__soon">Not open yet. Nothing can be charged today.</p>
           <a class="button button--quiet" href="/auth/discord">Sign in with Discord</a>
         </div>
       </div>
@@ -651,11 +684,17 @@ const mark = (className: string) => classColor(className) ?? 'var(--border-stron
     letter-spacing: -0.026em;
   }
 
+  .pricing__lede {
+    max-width: 42rem;
+    margin-top: 0.75rem;
+    color: var(--text-secondary);
+  }
+
   .plans {
     display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(17rem, 1fr));
+    grid-template-columns: repeat(auto-fit, minmax(16rem, 1fr));
     gap: 1rem;
-    max-width: 46rem;
+    max-width: 62rem;
     margin-top: 1.5rem;
   }
 
@@ -673,6 +712,9 @@ const mark = (className: string) => classColor(className) ?? 'var(--border-stron
     background: var(--surface);
   }
 
+  /* The accent sits on the free hosted plan, not on the priced one. It is the plan we
+     want a guild to take first, and an accent on the €2.99 column was most of what made
+     the page read as though hosting were the thing being sold. */
   .plan--hosted {
     border-color: color-mix(in srgb, var(--accent) 35%, var(--border));
   }
@@ -703,6 +745,13 @@ const mark = (className: string) => classColor(className) ?? 'var(--border-stron
   .plan p {
     color: var(--text-secondary);
     font-size: var(--fs-sm);
+  }
+
+  /* Tag-qualified to outrank `.plan p` above, which would otherwise hold this at the
+     same size and colour as the plan's own copy. */
+  .plan p.plan__soon {
+    color: var(--text-tertiary);
+    font-size: var(--fs-xs);
   }
 
   .plan .button {

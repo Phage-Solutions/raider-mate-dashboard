@@ -12,6 +12,29 @@ Sections are `Added`, `Changed`, `Deprecated`, `Removed`, `Fixed`, `Security`.
 
 ## [Unreleased]
 
+## [0.3.2] - 2026-08-20
+
+### Changed
+
+- **The landing page said hosting was the paid part. It is not.** The plans were one free
+  self-hosted column beside one priced hosted column, which reads as "free only if you run
+  it yourself". Running Raider Mate on our instance is free: the bot, the signups, the
+  roster sync and the comp board, with no card. Premium is the analysis on top of that,
+  and only that. The page now shows all three, and says out loud that Premium is not open
+  for business yet, which is what the terms have said all along.
+
+### Added
+
+- **Anyone can open a comp and look at it.** The board, the formation and the assigner's
+  advisories were previously a raid lead's view of a manual comp and nobody else's:
+  everyone else was bounced back to the event. Now the comp opens for any raider who can
+  see the event, read-only, with nothing to drag and no save. An auto comp opens the same
+  way, so a raid lead can see the assigner's board before deciding to take manual control
+  of it.
+
+  The **Edit comp** button on the event page reads **View comp** when the board is not
+  yours to move.
+
 ## [0.3.1] - 2026-08-20
 
 ### Fixed

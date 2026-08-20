@@ -41,7 +41,6 @@ const NOTICES: Record<string, string> = {
     'That is not a WarcraftLogs report link. It should look like https://www.warcraftlogs.com/reports/aBcD1234.',
   failed: 'Raider Mate had a problem with that.',
   unreachable: 'Raider Mate is not answering right now.',
-  auto: 'That comp is on auto. Take manual control before editing it.',
   manual: 'That comp is manual. Locking it would throw the board away.',
 };
 const notice = NOTICES[Astro.url.searchParams.get('notice') ?? ''];
@@ -278,18 +277,21 @@ function reasonFor(board: Board, slot: Assignment): string | undefined {
                     <h3 transition:name={`comp-${event.id}-${board.name}`}>{board.name}</h3>
                     <span class="badge">{board.mode === 'AUTO' ? 'Auto' : 'Manual'}</span>
 
-                    {/* Rendered from the comp's own links. A raider gets none of this
-                        strip; a raid lead gets exactly the transitions the service
-                        offered on this comp, which is one per mode and never both. */}
+                    {/* Rendered from the comp's own links. A raider gets none of the
+                        transitions; a raid lead gets exactly the ones the service offered
+                        on this comp, which is one per mode and never both.
+
+                        The board itself is not a transition, so everyone gets the way in
+                        to it. What the link says is the comp's `save` link read back: the
+                        same lookup the builder route makes when it decides whether the
+                        board moves. */}
                     <div class="board__controls">
-                      {hasLink(board, 'save') && (
-                        <a
-                          class="button button--quiet"
-                          href={`/events/${event.id}/comp/${encodeURIComponent(board.name)}`}
-                        >
-                          Edit comp
-                        </a>
-                      )}
+                      <a
+                        class="button button--quiet"
+                        href={`/events/${event.id}/comp/${encodeURIComponent(board.name)}`}
+                      >
+                        {hasLink(board, 'save') ? 'Edit comp' : 'View comp'}
+                      </a>
 
                       {hasLink(board, 'lock') && (
                         <form
