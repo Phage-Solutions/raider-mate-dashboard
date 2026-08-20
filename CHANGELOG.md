@@ -12,6 +12,15 @@ Sections are `Added`, `Changed`, `Deprecated`, `Removed`, `Fixed`, `Security`.
 
 ## [Unreleased]
 
+## [0.3.1] - 2026-08-20
+
+### Fixed
+
+- **The comp builder did nothing until the page was reloaded.** Opening it from an event
+  left the board inert: no beams, no dragging, no saving. Navigating inside the dashboard
+  swaps the page without reloading it, and the builder only started itself once per
+  reload, so it never started at all on the way in from an event.
+
 ## [0.3.0] - 2026-08-20
 
 ### Added

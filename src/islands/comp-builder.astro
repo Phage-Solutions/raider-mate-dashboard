@@ -212,6 +212,9 @@ const payload = JSON.stringify({ state }).replace(/</g, '\\u003c');
    */
   const SPEED = 78;
 
+  /** What to undo before the router swaps this page away. */
+  const teardown: Array<() => void> = [];
+
   /** How long a boss line stays up, how often one comes round, and the opening pause. */
   const QUOTE_HELD = 15_000;
   const QUOTE_EVERY = 60_000;
@@ -861,14 +864,18 @@ const payload = JSON.stringify({ state }).replace(/</g, '\\u003c');
       }
     });
 
-    addEventListener('beforeunload', (event) => {
+    const unsaved = (event: BeforeUnloadEvent) => {
       if (differs(state, saved)) {
         event.preventDefault();
       }
-    });
+    };
+    addEventListener('beforeunload', unsaved);
+    teardown.push(() => removeEventListener('beforeunload', unsaved));
 
     // The beams are geometry, so they are wrong the moment the board reflows.
-    new ResizeObserver(drawBeams).observe(board);
+    const sizing = new ResizeObserver(drawBeams);
+    sizing.observe(board);
+    teardown.push(() => sizing.disconnect());
 
     heckle(root);
 
@@ -918,20 +925,57 @@ const payload = JSON.stringify({ state }).replace(/</g, '\\u003c');
       bubble.classList.remove('quote--on');
     };
 
-    document.addEventListener('visibilitychange', () => {
+    const onVisibility = () => {
       if (document.hidden) {
         stop();
       } else if (timer === undefined) {
         timer = window.setTimeout(speak, QUOTE_OPENING);
       }
+    };
+    document.addEventListener('visibilitychange', onVisibility);
+
+    teardown.push(() => {
+      document.removeEventListener('visibilitychange', onVisibility);
+      stop();
     });
 
     timer = window.setTimeout(speak, QUOTE_OPENING);
   }
 
-  for (const root of document.querySelectorAll<HTMLElement>('[data-builder]')) {
-    setUp(root);
+  /*
+   * Started on every navigation, not once per module.
+   *
+   * The dashboard routes through Astro's ClientRouter, which swaps the document without
+   * reloading it. A module script that has already run does not run again, so arriving
+   * at the builder from the event page left the whole island inert: no beams, no drag,
+   * no save. Only a refresh looked right, because only a refresh re-evaluated this file.
+   *
+   * astro:page-load covers the first load and every navigation after it. The direct call
+   * is for a page served without the router at all, and the class guard is what stops
+   * the two of them setting the same board up twice.
+   */
+  function boot() {
+    for (const root of document.querySelectorAll<HTMLElement>('[data-builder]')) {
+      if (!root.classList.contains('builder--live')) {
+        setUp(root);
+      }
+    }
   }
+
+  /*
+   * Anything attached outside the swapped markup has to come back off before the swap.
+   * Listeners on the board itself leave with the nodes they are on; these do not, and a
+   * raid lead who visits the builder twice would otherwise carry a second quote timer
+   * and a second unsaved-changes prompt for a board that no longer exists.
+   */
+  document.addEventListener('astro:before-swap', () => {
+    for (const off of teardown.splice(0)) {
+      off();
+    }
+  });
+
+  document.addEventListener('astro:page-load', boot);
+  boot();
 </script>
 
 <style>
