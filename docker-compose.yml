@@ -4,6 +4,10 @@ services:
   dashboard:
     build: .
     env_file: .env
+    environment:
+      # Local compose is plain HTTP, unlike the deployed container behind Scaleway's
+      # edge. Astro's origin check refuses every POST if this claims otherwise.
+      PUBLIC_SCHEME: http
     ports:
       - '8081:8080'
     restart: unless-stopped

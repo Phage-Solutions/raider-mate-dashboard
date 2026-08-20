@@ -12,6 +12,22 @@ Sections are `Added`, `Changed`, `Deprecated`, `Removed`, `Fixed`, `Security`.
 
 ## [Unreleased]
 
+## [0.1.1] - 2026-08-20
+
+### Fixed
+
+- **Every form in the dashboard is refused as a cross-site request once it is deployed
+  behind a proxy that terminates TLS.** Signing out, picking a guild, signing up,
+  registering a character, saving the configuration and creating an event all answered
+  403 with "Cross-site POST form submissions are forbidden".
+
+  Astro rebuilds the request URL from the forwarded headers and compares its origin to
+  the browser's `Origin` on every POST. It trusts no forwarded header unless the allowed
+  domains are configured, so it fell back to `http://localhost:4321`, which matches
+  nothing a real browser sends. Caddy now states the public scheme and host, and the
+  build accepts them. Set `PUBLIC_SCHEME=http` for a deployment that is genuinely served
+  over plain HTTP; the default is `https`.
+
 ## [0.1.0] - 2026-08-20
 
 ### Changed

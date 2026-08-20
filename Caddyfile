@@ -32,5 +32,22 @@
 		-Server
 	}
 
-	reverse_proxy 127.0.0.1:4321
+	reverse_proxy 127.0.0.1:4321 {
+		# The scheme Caddy sees is not the scheme the browser used: Scaleway terminates
+		# TLS at the edge and forwards plain HTTP inward. Astro compares the origin it
+		# rebuilds from this against the Origin header on every POST, so getting it
+		# wrong refuses every form in the product as a cross-site request.
+		#
+		# Set here rather than trusted from the edge, because trusting an inbound
+		# X-Forwarded-Proto would let a client claim its own. Override it for a plain
+		# HTTP deployment; docker-compose.yml does exactly that.
+		header_up X-Forwarded-Proto {$PUBLIC_SCHEME:https}
+
+		# Same reasoning for the host. Caddy replaces whatever the client sent with the
+		# Host it actually served, which is what keeps allowedDomains: [{}] honest.
+		#
+		# hostport, not host: the latter drops the port, and the origin Astro rebuilds
+		# then fails to match a browser sitting on any port but the default.
+		header_up X-Forwarded-Host {hostport}
+	}
 }

@@ -9,6 +9,19 @@ export default defineConfig({
   // The node adapter would otherwise start a filesystem-backed session store nothing
   // here uses. Session state is the sealed cookie in src/lib/session.ts and the API.
   session: false,
+  security: {
+    // Astro rebuilds Astro.url from the forwarded headers and compares its origin to the
+    // Origin header on every POST. Unconfigured, it trusts none of them, falls back to
+    // http://localhost:4321, and refuses every form in the product as cross-site the
+    // moment the dashboard is served from a real hostname.
+    //
+    // Any domain, because the image is self-hostable and the hostname is not known when
+    // it is built. That is safe only because of what sits in front: the node process
+    // listens on loopback, so the sole thing that can reach it is the Caddy in the same
+    // container, and that Caddy writes these headers itself rather than passing on what
+    // a client sent. Both halves of that are load-bearing. See Caddyfile.
+    allowedDomains: [{}],
+  },
   env: {
     schema: {
       // All of these are declared secret, including the two that are only URLs.
