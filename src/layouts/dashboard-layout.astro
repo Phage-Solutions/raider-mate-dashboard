@@ -4,103 +4,36 @@ import BaseLayout from './base-layout.astro';
 
 interface Props {
   title: string;
+  /**
+   * Pairs the page title with the element it was opened from, so the two morph into
+   * each other across the navigation. Only pages reached from a list set it.
+   */
+  titleTransition?: string | undefined;
 }
 
-const { title } = Astro.props;
-const session = Astro.locals.session;
+const { title, titleTransition } = Astro.props;
 ---
 
 <BaseLayout title={title}>
-  <div class="shell">
-    <header>
-      <a class="brand" href="/">Raider Mate</a>
-      <div class="who">
-        {
-          session?.selectedGuildName && (
-            <span class="guild">
-              {session.selectedGuildName} <a href="/guild">Change</a>
-            </span>
-          )
-        }
-        <span class="muted">{session?.username}</span>
-        <form method="post" action="/auth/logout">
-          <button class="button button--quiet" type="submit">Sign out</button>
-        </form>
+  <SiteNav />
+  <main class="page" id="main">
+    <div class="page-head">
+      <div class="page-head__title">
+        <h1>
+          {titleTransition ? <span transition:name={titleTransition}>{title}</span> : title}
+        </h1>
+        <slot name="head" />
       </div>
-    </header>
-
-    <div class="body">
-      <aside>
-        <SiteNav />
-      </aside>
-      <main id="main">
-        <h1>{title}</h1>
-        <slot />
-      </main>
+      <slot name="actions" />
     </div>
-  </div>
+    <slot />
+  </main>
 </BaseLayout>
 
 <style>
-  .shell {
-    min-height: 100vh;
-    display: flex;
-    flex-direction: column;
-  }
-
-  header {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 1rem;
-    align-items: center;
-    justify-content: space-between;
-    padding: 0.75rem 1.5rem;
-    border-bottom: 1px solid var(--border);
-    background: var(--surface-raised);
-  }
-
-  .brand {
-    font-weight: 700;
-    text-decoration: none;
-  }
-
-  .who {
-    display: flex;
-    align-items: center;
-    gap: 1rem;
-  }
-
-  .guild {
-    display: inline-flex;
-    gap: 0.5rem;
-    align-items: baseline;
-  }
-
-  .body {
-    flex: 1;
+  .page-head__title {
     display: grid;
-    grid-template-columns: 14rem 1fr;
-  }
-
-  aside {
-    padding: 1rem;
-    border-right: 1px solid var(--border);
-    background: var(--surface-raised);
-  }
-
-  main {
-    padding: 1.5rem;
-    max-width: 60rem;
-  }
-
-  @media (max-width: 45rem) {
-    .body {
-      grid-template-columns: 1fr;
-    }
-
-    aside {
-      border-right: 0;
-      border-bottom: 1px solid var(--border);
-    }
+    gap: 0.5rem;
+    min-width: 0;
   }
 </style>

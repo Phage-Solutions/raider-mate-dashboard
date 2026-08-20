@@ -1,0 +1,245 @@
+---
+import EventChips from '../components/event-chips.astro';
+import BotInstall from '../components/bot-install.astro';
+import DashboardLayout from '../layouts/dashboard-layout.astro';
+import { fetchGuildTimezone, formatEventTime, formatSignupWindow } from '../lib/guild-time';
+import { noticeFor } from '../lib/service-notice';
+import type { Event } from '../lib/service-types';
+
+export const prerender = false;
+
+const { session, actor, client } = Astro.locals;
+
+if (!session!.selectedGuildId) {
+  return Astro.redirect('/guild');
+}
+
+const guildId = session!.selectedGuildId;
+
+const timezone = await fetchGuildTimezone(client, actor, guildId);
+
+let events: Event[] = [];
+let failure: string | null = null;
+
+try {
+  events = await client.get<Event[]>(actor, `/api/guilds/${guildId}/events`);
+} catch (error) {
+  failure = noticeFor(error);
+}
+
+// What is on tonight, rather than the whole calendar. /events has the rest.
+const NEXT_UP = 3;
+const [next, ...following] = events.slice(0, NEXT_UP);
+const now = new Date();
+---
+
+<DashboardLayout title="Overview">
+  <p slot="head" class="muted">What is next in {session!.selectedGuildName}.</p>
+
+  {failure && <p class="notice">{failure}</p>}
+
+  {
+    !failure && events.length === 0 && (
+      <div class="panel">
+        <div class="empty">
+          <h3>Nothing scheduled</h3>
+          <p>
+            Raid nights are created from Discord. If that is a surprise,{' '}
+            {session!.selectedGuildName} may not be running Raider Mate yet.
+          </p>
+          <BotInstall />
+          <a class="button button--quiet" href="/roster">
+            Check the roster
+          </a>
+        </div>
+      </div>
+    )
+  }
+
+  {
+    next && (
+      <article class="next">
+        <div class="next__head">
+          <span class="badge">Up next</span>
+          <span transition:name={`event-chips-${next.id}`}>
+            <EventChips event={next} />
+          </span>
+        </div>
+
+        <h2>
+          <a href={`/events/${next.id}`} transition:name={`event-title-${next.id}`}>
+            {next.title}
+          </a>
+        </h2>
+
+        <dl class="next__facts">
+          <div>
+            <dt>Starts</dt>
+            <dd>
+              <time datetime={next.starts_at}>{formatEventTime(next.starts_at, timezone)}</time>
+            </dd>
+          </div>
+          <div>
+            <dt>Signups close</dt>
+            <dd>
+              {formatSignupWindow(next.signup_deadline, now)}
+              <span class="at">
+                <time datetime={next.signup_deadline}>
+                  {formatEventTime(next.signup_deadline, timezone)}
+                </time>
+              </span>
+            </dd>
+          </div>
+        </dl>
+
+        <a class="button" href={`/events/${next.id}`}>
+          Open event
+        </a>
+      </article>
+    )
+  }
+
+  {
+    following.length > 0 && (
+      <section class="section">
+        <h2>After that</h2>
+        <ul class="rows">
+          {following.map((event) => (
+            <li>
+              <a class="row" href={`/events/${event.id}`}>
+                <span class="row__title" transition:name={`event-title-${event.id}`}>
+                  {event.title}
+                </span>
+                <span class="row__chips" transition:name={`event-chips-${event.id}`}>
+                  <EventChips event={event} />
+                </span>
+                <time class="row__when" datetime={event.starts_at}>
+                  {formatEventTime(event.starts_at, timezone)}
+                </time>
+              </a>
+            </li>
+          ))}
+        </ul>
+      </section>
+    )
+  }
+
+  {
+    events.length > NEXT_UP && (
+      <p class="more">
+        <a href="/events">All {events.length} upcoming events</a>
+      </p>
+    )
+  }
+</DashboardLayout>
+
+<style>
+  /* The one question this page answers, at the scale of the answer. */
+  .next {
+    display: grid;
+    gap: 1rem;
+    justify-items: start;
+    padding: 1.5rem;
+    border: 1px solid var(--border);
+    border-radius: var(--radius-xl);
+    background: var(--surface);
+  }
+
+  .next__head {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+    align-items: center;
+  }
+
+  .next h2 {
+    font-size: var(--fs-2xl);
+    font-weight: 640;
+    letter-spacing: -0.022em;
+  }
+
+  .next h2 a {
+    color: var(--text-primary);
+    text-decoration: none;
+  }
+
+  .next h2 a:hover {
+    color: var(--accent);
+  }
+
+  .next__facts {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.75rem 2.5rem;
+    margin: 0;
+  }
+
+  .next__facts dt {
+    color: var(--text-tertiary);
+    font-size: var(--fs-xs);
+    font-weight: 560;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+  }
+
+  .next__facts dd {
+    margin: 0.125rem 0 0;
+    font-variant-numeric: tabular-nums;
+  }
+
+  .at {
+    display: block;
+    color: var(--text-tertiary);
+    font-size: var(--fs-xs);
+  }
+
+  .rows {
+    display: grid;
+    gap: 0.5rem;
+    margin: 0;
+    padding: 0;
+    list-style: none;
+  }
+
+  .row {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.5rem 0.875rem;
+    align-items: center;
+    padding: 0.75rem 1rem;
+    border: 1px solid var(--border);
+    border-radius: var(--radius-lg);
+    background: var(--surface);
+    color: var(--text-primary);
+    text-decoration: none;
+    transition:
+      background-color var(--dur-1) var(--ease),
+      border-color var(--dur-1) var(--ease);
+  }
+
+  .row:hover {
+    background: var(--hover);
+    border-color: var(--border-strong);
+    color: var(--text-primary);
+  }
+
+  .row__title {
+    font-weight: 560;
+  }
+
+  .row:hover .row__title {
+    color: var(--accent);
+  }
+
+  .row__when {
+    margin-left: auto;
+    color: var(--text-secondary);
+    font-size: var(--fs-sm);
+    white-space: nowrap;
+  }
+
+  .more {
+    margin-top: 1.5rem;
+    font-size: var(--fs-sm);
+  }
+</style>

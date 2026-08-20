@@ -1,0 +1,895 @@
+---
+import EventChips from '../../../components/event-chips.astro';
+import DashboardLayout from '../../../layouts/dashboard-layout.astro';
+import { fetchGuildTimezone, formatEventTime, formatSignupWindow } from '../../../lib/guild-time';
+import { getLink, hasLink } from '../../../lib/links';
+import { noticeFor } from '../../../lib/service-notice';
+import { ServiceError } from '../../../lib/service-error';
+import { classColor } from '../../../lib/wow-class';
+import type {
+  Assignment,
+  Board,
+  Character,
+  CompInfo,
+  Event,
+  LateRequest,
+  Role,
+  Signup,
+  SignupStatus,
+} from '../../../lib/service-types';
+
+export const prerender = false;
+
+const { session, actor, client } = Astro.locals;
+
+if (!session!.selectedGuildId) {
+  return Astro.redirect('/guild');
+}
+
+const guildId = session!.selectedGuildId;
+const eventId = Astro.params.id!;
+
+// What a write route sent us back with. Codes rather than the service's own words: a
+// message round-tripped through a query string is a message anyone can put on screen.
+const NOTICES: Record<string, string> = {
+  late: 'Signups have closed. A raid lead has to approve that.',
+  denied: 'That is not yours to change.',
+  gone: 'That character is no longer on this event.',
+  badlog:
+    'That is not a WarcraftLogs report link. It should look like https://www.warcraftlogs.com/reports/aBcD1234.',
+  failed: 'Raider Mate had a problem with that.',
+  unreachable: 'Raider Mate is not answering right now.',
+};
+const notice = NOTICES[Astro.url.searchParams.get('notice') ?? ''];
+
+const STATUS_LABELS: Record<SignupStatus, string> = {
+  CONFIRMED: 'Confirmed',
+  TENTATIVE: 'Tentative',
+  DECLINED: 'Declined',
+  LATE: 'Late',
+  ABSENT: 'Absent',
+  NO_SHOW: 'No show',
+};
+
+// A raid lead reads the colour before they finish reading the word, which is the point
+// of a status column twenty rows long.
+const STATUS_HUES: Record<SignupStatus, string> = {
+  CONFIRMED: 'var(--success)',
+  TENTATIVE: 'var(--info)',
+  DECLINED: 'var(--danger)',
+  LATE: 'var(--warning)',
+  ABSENT: 'var(--text-tertiary)',
+  NO_SHOW: 'var(--danger)',
+};
+
+const ROLE_LABELS: Record<Role, string> = {
+  TANK: 'Tanks',
+  HEALER: 'Healers',
+  MDPS: 'Melee',
+  RDPS: 'Ranged',
+};
+
+const ROLE_HUES: Record<Role, string> = {
+  TANK: 'var(--role-tank)',
+  HEALER: 'var(--role-healer)',
+  MDPS: 'var(--role-mdps)',
+  RDPS: 'var(--role-rdps)',
+};
+
+const ROLE_ORDER: Role[] = ['TANK', 'HEALER', 'MDPS', 'RDPS'];
+
+let event: Event | null = null;
+let failure: string | null = null;
+
+try {
+  event = await client.get<Event>(actor, `/api/events/${eventId}`);
+} catch (error) {
+  // The service answers 404 for both "no such event" and "not your guild", on purpose.
+  // Telling them apart here would leak the difference it declined to leak.
+  if (error instanceof ServiceError && error.isNotFound) {
+    Astro.response.status = 404;
+    failure = 'No such event.';
+  } else {
+    failure = noticeFor(error);
+  }
+}
+
+let timezone: string | null = null;
+let signups: Signup[] = [];
+let boards: Board[] = [];
+let lateRequests: LateRequest[] = [];
+let mine: Character[] = [];
+let names = new Map<string, string>();
+
+if (event) {
+  timezone = await fetchGuildTimezone(client, actor, guildId);
+
+  try {
+    // Followed, not built: the event said where its signups live.
+    signups = (await client.follow<Signup[]>(actor, getLink(event, 'signups')!)).body;
+
+    const comps = (await client.follow<CompInfo[]>(actor, getLink(event, 'comps')!)).body;
+    boards = await Promise.all(
+      comps.map(async (comp) => (await client.follow<Board>(actor, getLink(comp, 'self')!)).body),
+    );
+
+    mine = await client.get<Character[]>(actor, `/api/users/${session!.discordId}/characters`);
+
+    const lateLink = getLink(event, 'late-requests');
+    if (lateLink) {
+      lateRequests = (await client.follow<LateRequest[]>(actor, lateLink)).body;
+      // Late requests carry a character id and nothing else, and a raid lead cannot
+      // approve a UUID. The roster is the only place the name lives.
+      const roster = await client.get<Character[]>(actor, `/api/guilds/${guildId}/characters`);
+      names = new Map(roster.map((c) => [c.id, c.name]));
+    }
+  } catch (error) {
+    failure = noticeFor(error);
+  }
+}
+
+// The link is what the service offered; warcraftlogs_url is the same string on the
+// resource. Reading the link keeps this rendering from what was handed over.
+const logsUrl = event ? getLink(event, 'warcraftlogs')?.href : undefined;
+
+const signedUp = new Set(signups.map((signup) => signup.character_id));
+const unsigned = mine.filter((character) => !signedUp.has(character.id));
+const now = new Date();
+
+function bench(board: Board): Assignment[] {
+  return board.slots.filter((slot) => slot.is_bench);
+}
+
+function inRole(board: Board, role: Role): Assignment[] {
+  return board.slots.filter((slot) => !slot.is_bench && slot.role === role);
+}
+
+function slotName(slot: Assignment): string {
+  return slot.character?.name ?? slot.character_id;
+}
+---
+
+<DashboardLayout
+  title={event?.title ?? 'Event'}
+  titleTransition={event ? `event-title-${event.id}` : undefined}
+>
+  {
+    event && (
+      <div slot="head" class="head">
+        <span transition:name={`event-chips-${event.id}`}>
+          <EventChips event={event} />
+        </span>
+        <span class="head__time">
+          Starts{' '}
+          <time datetime={event.starts_at}>{formatEventTime(event.starts_at, timezone)}</time>
+        </span>
+        <span class="head__time head__time--muted">
+          Signups {formatSignupWindow(event.signup_deadline, now).toLowerCase()}
+          {', '}
+          <time datetime={event.signup_deadline}>
+            {formatEventTime(event.signup_deadline, timezone)}
+          </time>
+        </span>
+      </div>
+    )
+  }
+
+  {
+    event && (
+      <a slot="actions" class="button button--quiet" href="/events">
+        All events
+      </a>
+    )
+  }
+
+  {notice && <p class="notice">{notice}</p>}
+  {failure && <p class="notice">{failure}</p>}
+
+  {
+    /* Rendered from the links and nothing else: a raider with a report to read sees the
+       link, a raid lead also sees the control, and someone offered neither sees no
+       strip at all. */
+    event && (hasLink(event, 'warcraftlogs') || hasLink(event, 'set-warcraftlogs')) && (
+      <div class="logs">
+        {logsUrl ? (
+          <a class="logs__link" href={logsUrl} rel="noreferrer">
+            WarcraftLogs report
+          </a>
+        ) : (
+          <span class="muted">No logs linked to this raid yet.</span>
+        )}
+
+        {hasLink(event, 'set-warcraftlogs') && (
+          <details class="logs__edit">
+            <summary>{logsUrl ? 'Change' : 'Link the logs'}</summary>
+            <div class="logs__forms">
+              <form method="post" action={`/events/${event.id}/warcraftlogs`} data-astro-reload>
+                <input
+                  type="url"
+                  name="warcraftlogs_url"
+                  value={logsUrl ?? ''}
+                  placeholder="https://www.warcraftlogs.com/reports/aBcD1234"
+                  aria-label="WarcraftLogs report URL"
+                />
+                <button class="button" type="submit">
+                  Save
+                </button>
+              </form>
+              {/* Its own form: an empty value in the one above would lose to the input
+                  it sits beside, and the raid lead would save the URL they meant to
+                  remove. */}
+              {logsUrl && (
+                <form method="post" action={`/events/${event.id}/warcraftlogs`} data-astro-reload>
+                  <input type="hidden" name="warcraftlogs_url" value="" />
+                  <button class="button button--ghost" type="submit">
+                    Remove
+                  </button>
+                </form>
+              )}
+            </div>
+          </details>
+        )}
+      </div>
+    )
+  }
+
+  {
+    event && (
+      <>
+        {
+          /* The comp is what a raid lead opens this page for, so it leads. Before it is
+             locked there is nothing to show, and a full empty panel would push the
+             signups a screen down to say so: one line does the same job. */
+          boards.length === 0 ? (
+            <p class="pending">
+              <span class="pending__dot" aria-hidden="true" />
+              No comp locked yet. A raid lead locks it from Discord, and it lands here.
+            </p>
+          ) : (
+            <section class="section comps">
+              <h2>Comps</h2>
+              {boards.map((board) => (
+                <div class="panel board">
+                  <div class="panel__head">
+                    <h3>{board.name}</h3>
+                    <span class="badge">{board.mode === 'AUTO' ? 'Auto' : 'Manual'}</span>
+                  </div>
+
+                  <div class="panel__body">
+                    {/* Information from the assigner, never an error and never a blocker. */}
+                    {board.advisories && board.advisories.length > 0 && (
+                      <ul class="advisories">
+                        {board.advisories.map((advisory) => (
+                          <li>
+                            {advisory.role && (
+                              <span
+                                class="advisories__dot"
+                                style={`background: ${ROLE_HUES[advisory.role]}`}
+                                aria-hidden="true"
+                              />
+                            )}
+                            {advisory.role ? `${advisory.role}: ` : ''}
+                            {advisory.message}
+                          </li>
+                        ))}
+                      </ul>
+                    )}
+
+                    <div class="roles">
+                      {ROLE_ORDER.map((role) => (
+                        <div class="role" style={`--hue: ${ROLE_HUES[role]}`}>
+                          <h4>
+                            <span class="role__dot" aria-hidden="true" />
+                            {ROLE_LABELS[role]}
+                            <span class="role__count">{inRole(board, role).length}</span>
+                          </h4>
+                          <ul>
+                            {inRole(board, role).map((slot) => (
+                              <li>
+                                {slotName(slot)}
+                                {slot.reason && <span class="reason">{slot.reason}</span>}
+                              </li>
+                            ))}
+                          </ul>
+                        </div>
+                      ))}
+                    </div>
+
+                    {/* Bench comes from the comp, not from a signup status. A raider can be
+                    confirmed and benched at once, and that is the normal case. */}
+                    {bench(board).length > 0 && (
+                      <div class="bench">
+                        <h4>
+                          Bench
+                          <span class="role__count">{bench(board).length}</span>
+                        </h4>
+                        <ul>
+                          {bench(board).map((slot) => (
+                            <li>
+                              {slotName(slot)}
+                              {slot.reason && <span class="reason">{slot.reason}</span>}
+                            </li>
+                          ))}
+                        </ul>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              ))}
+            </section>
+          )
+        }
+
+        <section class="panel signups">
+          <div class="panel__head">
+            <h2>Signups</h2>
+            {signups.length > 0 && <span class="badge">{signups.length} signed up</span>}
+          </div>
+
+          {signups.length === 0 && (
+            <div class="empty">
+              <h3>Nobody has signed up yet</h3>
+              <p>Raiders sign up from the event post in Discord, or from here.</p>
+            </div>
+          )}
+
+          {signups.length > 0 && (
+            <div class="table-wrap">
+              <table>
+                <thead>
+                  <tr>
+                    <th scope="col">Raider</th>
+                    <th scope="col">Status</th>
+                    <th scope="col">Note</th>
+                    <th scope="col">
+                      <span class="visually-hidden">Actions</span>
+                    </th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {signups.map((signup) => (
+                    <tr>
+                      <th scope="row">
+                        <span class="raider">
+                          <span
+                            class="raider__mark"
+                            style={`background: ${classColor(signup.character?.class) ?? 'var(--border-strong)'}`}
+                            aria-hidden="true"
+                          />
+                          <span>
+                            <span class="raider__name">
+                              {signup.character?.name ?? signup.character_id}
+                            </span>
+                            <span class="raider__sub">
+                              {signup.character?.class ?? ''}
+                              {signup.character?.spec ? ` ${signup.character.spec}` : ''}
+                              {signup.character && signup.character.roles.length > 0 && (
+                                <>
+                                  {signup.character.class || signup.character.spec ? ' · ' : ''}
+                                  {signup.character.roles.map((choice) => choice.role).join(' / ')}
+                                </>
+                              )}
+                            </span>
+                          </span>
+                        </span>
+                      </th>
+                      <td>
+                        <span
+                          class="badge badge--hue"
+                          style={`--hue: ${STATUS_HUES[signup.status]}`}
+                        >
+                          <span class="badge__dot" />
+                          {STATUS_LABELS[signup.status]}
+                        </span>
+                        {signup.late_until && (
+                          <span class="until">
+                            until{' '}
+                            <time datetime={signup.late_until}>
+                              {formatEventTime(signup.late_until, timezone)}
+                            </time>
+                          </span>
+                        )}
+                      </td>
+                      <td class="note">{signup.note}</td>
+
+                      {/* Rendered from allowed_statuses and the links, and from nothing
+                          else. Both absent means this caller cannot act on this signup. */}
+                      <td class="controls">
+                        <div class="controls__inner">
+                          {signup.allowed_statuses && signup.allowed_statuses.length > 0 && (
+                            <form
+                              method="post"
+                              action={`/events/${event.id}/signup`}
+                              data-astro-reload
+                            >
+                              <input
+                                type="hidden"
+                                name="character_id"
+                                value={signup.character_id}
+                              />
+                              {signup.allowed_statuses.map((status) => (
+                                <button
+                                  class="button button--quiet"
+                                  type="submit"
+                                  name="status"
+                                  value={status}
+                                  aria-pressed={status === signup.status}
+                                  style={`--hue: ${STATUS_HUES[status]}`}
+                                >
+                                  {STATUS_LABELS[status]}
+                                </button>
+                              ))}
+                            </form>
+                          )}
+                          {hasLink(signup, 'withdraw') && (
+                            <form
+                              method="post"
+                              action={`/events/${event.id}/withdraw`}
+                              data-astro-reload
+                            >
+                              <input
+                                type="hidden"
+                                name="character_id"
+                                value={signup.character_id}
+                              />
+                              <button class="button button--ghost" type="submit">
+                                Withdraw
+                              </button>
+                            </form>
+                          )}
+                        </div>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </section>
+
+        {unsigned.length > 0 && (
+          <section class="section">
+            <h2>Sign up another character</h2>
+            <ul class="mine">
+              {unsigned.map((character) => (
+                <li>
+                  <span class="raider">
+                    <span
+                      class="raider__mark"
+                      style={`background: ${classColor(character.class) ?? 'var(--border-strong)'}`}
+                      aria-hidden="true"
+                    />
+                    <span class="raider__name">{character.name}</span>
+                  </span>
+                  {/* One button, and it means what it says. There is no signup row yet,
+                      so there is no allowed_statuses to render from, and inventing the
+                      rest of the set here would be this repo guessing. Once the row
+                      exists it carries its own. */}
+                  <form method="post" action={`/events/${event.id}/signup`} data-astro-reload>
+                    <input type="hidden" name="character_id" value={character.id} />
+                    <input type="hidden" name="status" value="CONFIRMED" />
+                    <button class="button" type="submit">
+                      Sign up
+                    </button>
+                  </form>
+                </li>
+              ))}
+            </ul>
+          </section>
+        )}
+
+        {hasLink(event, 'late-requests') && (
+          <section class="section">
+            <h2>Late requests</h2>
+            {lateRequests.length === 0 && (
+              <div class="panel">
+                <div class="empty">
+                  <h3>Nothing waiting</h3>
+                  <p>Requests to change a signup after the deadline land here.</p>
+                </div>
+              </div>
+            )}
+            {lateRequests.length > 0 && (
+              <ul class="requests">
+                {lateRequests.map((request) => (
+                  <li class="panel">
+                    <div class="panel__body">
+                      <div class="requests__top">
+                        <span class="raider__name">
+                          {names.get(request.character_id) ?? request.character_id}
+                        </span>
+                        <span class="badge">{request.state.toLowerCase()}</span>
+                      </div>
+                      <p class="muted">
+                        Asked for {STATUS_LABELS[request.status]}
+                        {request.late_until && (
+                          <>
+                            {' until '}
+                            <time datetime={request.late_until}>
+                              {formatEventTime(request.late_until, timezone)}
+                            </time>
+                          </>
+                        )}
+                      </p>
+                      {request.note && <p class="note">{request.note}</p>}
+                    </div>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </section>
+        )}
+      </>
+    )
+  }
+</DashboardLayout>
+
+<style>
+  /* Most of an event's life is spent before the comp is locked, so the not-yet state is
+     one line rather than a panel: it says the same thing and costs a signup row instead
+     of a screen. */
+  .pending {
+    display: flex;
+    gap: 0.5rem;
+    align-items: center;
+    padding: 0.5rem 0.75rem;
+    border: 1px solid var(--border-subtle);
+    border-radius: var(--radius-md);
+    background: var(--raised);
+    color: var(--text-tertiary);
+    font-size: var(--fs-sm);
+  }
+
+  .pending__dot {
+    width: 6px;
+    height: 6px;
+    flex: none;
+    border-radius: var(--radius-full);
+    background: var(--text-tertiary);
+  }
+
+  /* Whatever the comp turned out to be, the signups start their own block under it. */
+  .signups {
+    margin-top: 1.5rem;
+  }
+
+  .logs {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.5rem 1rem;
+    align-items: center;
+    margin-bottom: 1.5rem;
+    padding: 0.75rem 1rem;
+    border: 1px solid var(--border);
+    border-radius: var(--radius-lg);
+    background: var(--surface);
+    font-size: var(--fs-sm);
+  }
+
+  .logs__link {
+    font-weight: 560;
+  }
+
+  .logs__edit {
+    margin-left: auto;
+  }
+
+  .logs__edit summary {
+    display: inline-flex;
+    align-items: center;
+    min-height: 32px;
+    padding: 0.4rem 0.875rem;
+    border: 1px solid var(--border);
+    border-radius: var(--radius-md);
+    background: var(--raised);
+    color: var(--text-primary);
+    font-size: var(--fs-sm);
+    font-weight: 600;
+    list-style: none;
+    cursor: pointer;
+    transition:
+      background-color var(--dur-1) var(--ease),
+      border-color var(--dur-1) var(--ease);
+  }
+
+  .logs__edit summary::-webkit-details-marker {
+    display: none;
+  }
+
+  .logs__edit summary:hover {
+    background: var(--hover);
+    border-color: var(--border-strong);
+  }
+
+  .logs__forms {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+    margin-top: 0.75rem;
+  }
+
+  .logs__forms form {
+    display: flex;
+    gap: 0.5rem;
+  }
+
+  .logs input[type='url'] {
+    min-width: min(24rem, 60vw);
+    min-height: 32px;
+    padding: 0.4rem 0.625rem;
+    border: 1px solid var(--border);
+    border-radius: var(--radius-md);
+    background: var(--raised);
+    color: var(--text-primary);
+    font: inherit;
+    font-size: var(--fs-sm);
+    transition:
+      border-color var(--dur-1) var(--ease),
+      box-shadow var(--dur-1) var(--ease);
+  }
+
+  .logs input[type='url']::placeholder {
+    color: var(--text-tertiary);
+  }
+
+  .logs input[type='url']:focus-visible {
+    border-color: var(--accent);
+    box-shadow: var(--ring);
+  }
+
+  .head {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.5rem 1rem;
+    align-items: center;
+    color: var(--text-secondary);
+    font-size: var(--fs-sm);
+  }
+
+  .head__time {
+    font-variant-numeric: tabular-nums;
+  }
+
+  .head__time--muted {
+    color: var(--text-tertiary);
+  }
+
+  .raider {
+    display: flex;
+    gap: 0.5rem;
+    align-items: center;
+  }
+
+  .raider__mark {
+    width: 3px;
+    height: 1.75em;
+    flex: none;
+    border-radius: var(--radius-full);
+  }
+
+  .raider__name {
+    display: block;
+    color: var(--text-primary);
+    font-weight: 560;
+  }
+
+  .raider__sub {
+    display: block;
+    color: var(--text-tertiary);
+    font-size: var(--fs-xs);
+  }
+
+  .until {
+    display: block;
+    margin-top: 0.25rem;
+    color: var(--text-tertiary);
+    font-size: var(--fs-xs);
+    white-space: nowrap;
+  }
+
+  .note {
+    max-width: 34ch;
+    color: var(--text-secondary);
+    font-size: var(--fs-sm);
+  }
+
+  .controls {
+    text-align: right;
+  }
+
+  /* The cap is what keeps the row divider unbroken: without it the widest
+     allowed_statuses set sets the table's width and the panel scrolls sideways under
+     every other row. */
+  .controls__inner {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.375rem;
+    justify-content: flex-end;
+    max-width: 21rem;
+    margin-left: auto;
+  }
+
+  .controls form {
+    display: contents;
+  }
+
+  /* The status a raider is already on takes that status's colour, so the current answer
+     reads without comparing every button in the row. */
+  .controls button[aria-pressed='true'] {
+    border-color: color-mix(in srgb, var(--hue) 45%, transparent);
+    background: color-mix(in srgb, var(--hue) 13%, transparent);
+    color: var(--hue);
+  }
+
+  .mine {
+    display: grid;
+    gap: 0.5rem;
+    margin: 0;
+    padding: 0;
+    list-style: none;
+  }
+
+  .mine li {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.75rem;
+    align-items: center;
+    justify-content: space-between;
+    padding: 0.75rem 1rem;
+    border: 1px solid var(--border);
+    border-radius: var(--radius-lg);
+    background: var(--surface);
+  }
+
+  .board + .board {
+    margin-top: 0.75rem;
+  }
+
+  .advisories {
+    display: grid;
+    gap: 0.375rem;
+    margin: 0 0 1.25rem;
+    padding: 0.75rem 0.875rem;
+    border: 1px solid var(--border-subtle);
+    border-radius: var(--radius-lg);
+    background: var(--raised);
+    color: var(--text-secondary);
+    font-size: var(--fs-sm);
+    list-style: none;
+  }
+
+  .advisories li {
+    display: flex;
+    gap: 0.5rem;
+    align-items: baseline;
+  }
+
+  .advisories__dot {
+    width: 6px;
+    height: 6px;
+    flex: none;
+    border-radius: var(--radius-full);
+  }
+
+  .roles {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(11rem, 1fr));
+    gap: 1.25rem;
+  }
+
+  .role__dot {
+    width: 6px;
+    height: 6px;
+    border-radius: var(--radius-full);
+    background: var(--hue);
+  }
+
+  h4 {
+    display: flex;
+    gap: 0.5rem;
+    align-items: center;
+    margin: 0 0 0.5rem;
+    color: var(--text-tertiary);
+    font-size: var(--fs-xs);
+    font-weight: 560;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+  }
+
+  .role__count {
+    margin-left: auto;
+    color: var(--text-tertiary);
+    font-variant-numeric: tabular-nums;
+  }
+
+  .roles ul,
+  .bench ul {
+    display: grid;
+    gap: 0.25rem;
+    margin: 0;
+    padding: 0;
+    list-style: none;
+  }
+
+  .roles li,
+  .bench li {
+    padding: 0.3rem 0.5rem;
+    border-radius: var(--radius-sm);
+    background: var(--raised);
+    font-size: var(--fs-sm);
+  }
+
+  .reason {
+    display: block;
+    color: var(--text-tertiary);
+    font-size: var(--fs-xs);
+  }
+
+  .bench {
+    margin-top: 1.25rem;
+    padding-top: 1.25rem;
+    border-top: 1px solid var(--border-subtle);
+  }
+
+  .bench ul {
+    grid-template-columns: repeat(auto-fill, minmax(11rem, 1fr));
+  }
+
+  .requests {
+    display: grid;
+    gap: 0.75rem;
+    margin: 0;
+    padding: 0;
+    list-style: none;
+  }
+
+  .requests__top {
+    display: flex;
+    gap: 0.75rem;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 0.25rem;
+  }
+
+  .visually-hidden {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip-path: inset(50%);
+    white-space: nowrap;
+  }
+
+  @media (max-width: 52rem) {
+    thead {
+      display: none;
+    }
+
+    tbody tr {
+      display: grid;
+      gap: 0.5rem;
+      padding: 0.875rem 1rem;
+      border-bottom: 1px solid var(--border-subtle);
+    }
+
+    tbody th,
+    tbody td {
+      padding: 0;
+      border: 0;
+    }
+
+    .controls {
+      text-align: left;
+    }
+
+    .controls__inner {
+      justify-content: flex-start;
+      max-width: none;
+      margin-left: 0;
+    }
+
+    .note {
+      max-width: none;
+    }
+  }
+</style>

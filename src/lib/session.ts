@@ -9,11 +9,24 @@
  * Never localStorage or sessionStorage. Session state is this cookie and the API.
  */
 
+import type { GuildAbilities } from './capabilities';
+
 export const SESSION_COOKIE = 'rm_session';
 export const OAUTH_STATE_COOKIE = 'rm_oauth_state';
 
-/** Current payload shape. Bump it to invalidate every session on a breaking change. */
-const SESSION_VERSION = 1;
+/**
+ * Current payload shape. Bump it to invalidate every session on a breaking change.
+ *
+ * 2 added mayConfigure. A field added without a bump reads as undefined out of an older
+ * cookie, which is falsy, so everyone already signed in silently lost the configuration
+ * page until their actor facts next refreshed.
+ *
+ * 3 made mayConfigure nullable, so that a failed lookup is no longer cached as a denial.
+ * The bump also flushes the false values version 2 wrote during exactly that failure.
+ *
+ * 4 replaced it with abilities, which carries creating events as well as configuring.
+ */
+const SESSION_VERSION = 4;
 
 /** A week, matching Discord's own access token lifetime. */
 const SESSION_MAX_AGE_SECONDS = 7 * 24 * 60 * 60;
@@ -43,6 +56,15 @@ export interface Session {
   roleIds: string[];
   /** Discord's ADMINISTRATOR permission in the selected guild. */
   guildAdmin: boolean;
+  /**
+   * What the service offered this raider in the selected guild. Resolved there, from the
+   * guild's mapped raid-lead roles, and cached here on the same clock as the role ids.
+   * Never recomputed from roleIds: who counts as a raid lead is the service's rule, and
+   * a second copy of it here is exactly the drift HATEOAS exists to avoid.
+   *
+   * Null means the question could not be put, which is not the same as a no.
+   */
+  abilities: GuildAbilities | null;
   /** Epoch milliseconds the role ids and admin flag were last read from Discord. */
   actorFetchedAt: number;
 }
@@ -113,7 +135,13 @@ export async function openSession(sealed: string, secret: string): Promise<Sessi
 export function newSession(
   fields: Omit<
     Session,
-    'v' | 'selectedGuildId' | 'selectedGuildName' | 'roleIds' | 'guildAdmin' | 'actorFetchedAt'
+    | 'v'
+    | 'selectedGuildId'
+    | 'selectedGuildName'
+    | 'roleIds'
+    | 'guildAdmin'
+    | 'abilities'
+    | 'actorFetchedAt'
   >,
 ): Session {
   return {
@@ -122,6 +150,7 @@ export function newSession(
     selectedGuildName: null,
     roleIds: [],
     guildAdmin: false,
+    abilities: null,
     actorFetchedAt: 0,
     ...fields,
   };

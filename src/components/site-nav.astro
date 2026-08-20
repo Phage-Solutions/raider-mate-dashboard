@@ -1,50 +1,343 @@
 ---
 const current = Astro.url.pathname;
+const session = Astro.locals.session;
 
-// Roster and events arrive in the next phase. Listing them now would be a nav that
-// lies about what exists.
-const items = [{ href: '/', label: 'Overview' }];
+// Configuration appears only where the service offered it, which today means raid leads
+// and Discord admins. The answer is the service's, cached on the session, so this repo
+// never decides who is a raid lead. The page still draws every control from links, and
+// the service still refuses the writes regardless of what the nav showed.
+const items = [
+  { href: '/dashboard', label: 'Overview' },
+  { href: '/events', label: 'Events' },
+  { href: '/roster', label: 'Roster' },
+  { href: '/characters', label: 'My characters' },
+  // Until the service has answered, fall back to what Discord told us, which is the rule
+  // this replaced. Never hide the entry because the question could not be put.
+  ...((session?.abilities?.configure ?? session?.guildAdmin)
+    ? [{ href: '/guild/config', label: 'Configuration' }]
+    : []),
+];
+
+// Creating events has no such fallback. It belongs to the guild's mapped raid-lead roles
+// alone, so guessing from Discord's admin flag would put a button in front of somebody
+// the service is about to refuse. Unknown hides it, and the middleware re-asks on the
+// next request rather than leaving it unknown.
+const mayCreateEvents = session?.abilities?.createEvents === true;
+
+// /events/<id> is still Events. Exact matching would drop the indicator on a detail
+// page, which is the one place a raid lead most needs to know where they are.
+function isCurrent(href: string): boolean {
+  return current === href || current.startsWith(`${href}/`);
+}
 ---
 
-<nav aria-label="Main">
-  <ul>
-    {
-      items.map((item) => (
-        <li>
-          <a href={item.href} aria-current={current === item.href ? 'page' : undefined}>
-            {item.label}
+<header class="topbar">
+  <div class="topbar__inner">
+    <a class="brand" href="/dashboard">
+      <img class="brand__mark" src="/icon-512.webp" alt="" width="20" height="20" />
+      <span>Raider Mate</span>
+    </a>
+
+    <nav class="nav" aria-label="Main">
+      <ul>
+        {
+          items.map((item) => (
+            <li>
+              <a
+                class="nav__link"
+                href={item.href}
+                aria-current={isCurrent(item.href) ? 'page' : undefined}
+              >
+                {item.label}
+                {isCurrent(item.href) && (
+                  <span class="nav__marker" transition:name="nav-marker" aria-hidden="true" />
+                )}
+              </a>
+            </li>
+          ))
+        }
+      </ul>
+    </nav>
+
+    <div class="topbar__end">
+      {
+        session?.selectedGuildName && (
+          <a class="guild" href="/guild">
+            <span class="guild__name">{session.selectedGuildName}</span>
+            <svg class="guild__caret" viewBox="0 0 12 12" aria-hidden="true" focusable="false">
+              <path
+                d="M3 4.5 6 7.5 9 4.5"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="1.5"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+              />
+            </svg>
+            <span class="visually-hidden">Change guild</span>
           </a>
-        </li>
-      ))
-    }
-  </ul>
-</nav>
+        )
+      }
+      {
+        /* First in the end block on purpose: a raid lead reaches for this constantly,
+          and hunting for it inside the events page was the thing to avoid. */
+      }
+      {
+        mayCreateEvents && (
+          <a class="button button--quiet create" href="/events/new">
+            <svg class="create__plus" viewBox="0 0 12 12" aria-hidden="true" focusable="false">
+              <path
+                d="M6 2.5v7M2.5 6h7"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="1.6"
+                stroke-linecap="round"
+              />
+            </svg>
+            <span class="create__label">New event</span>
+          </a>
+        )
+      }
+      {session?.username && <span class="who">{session.username}</span>}
+      {
+        /* A full navigation, not a client-side one: this ends the session and the next
+          page must come from the server with the cookie already cleared. */
+      }
+      <form method="post" action="/auth/logout" data-astro-reload>
+        <button class="button button--ghost" type="submit">Sign out</button>
+      </form>
+    </div>
+  </div>
+</header>
 
 <style>
-  ul {
-    list-style: none;
+  .topbar {
+    position: sticky;
+    top: 0;
+    z-index: 20;
+    border-bottom: 1px solid var(--border);
+    background: color-mix(in srgb, var(--surface) 88%, transparent);
+    backdrop-filter: blur(12px) saturate(140%);
+  }
+
+  /* The bar lifts off the page once there is content behind it, and sits flat when
+     there is not. State, not decoration, and it costs no JavaScript. Browsers without
+     scroll-driven animations keep the flat bar. */
+  @supports (animation-timeline: scroll()) {
+    .topbar {
+      animation: topbar-lift linear both;
+      animation-timeline: scroll();
+      animation-range: 0 4rem;
+    }
+  }
+
+  @keyframes topbar-lift {
+    from {
+      box-shadow: 0 8px 24px -12px rgb(0 0 0 / 0);
+    }
+
+    to {
+      box-shadow: 0 8px 24px -12px rgb(0 0 0 / 0.7);
+    }
+  }
+
+  .topbar__inner {
+    display: flex;
+    gap: 1.25rem;
+    align-items: center;
+    width: min(var(--page-width), 100%);
+    min-height: var(--nav-height);
+    margin: 0 auto;
+    padding: 0 1.25rem;
+  }
+
+  .brand {
+    display: inline-flex;
+    gap: 0.5rem;
+    align-items: center;
+    color: var(--text-primary);
+    font-size: var(--fs-md);
+    font-weight: 640;
+    letter-spacing: -0.014em;
+    text-decoration: none;
+    white-space: nowrap;
+  }
+
+  .brand__mark {
+    width: 20px;
+    height: 20px;
+    flex: none;
+  }
+
+  .nav {
+    flex: 1;
+    min-width: 0;
+  }
+
+  .nav ul {
+    display: flex;
+    gap: 0.125rem;
+    align-items: center;
     margin: 0;
     padding: 0;
-    display: flex;
-    flex-direction: column;
-    gap: 0.25rem;
+    list-style: none;
   }
 
-  a {
+  .nav__link {
+    position: relative;
     display: block;
-    padding: 0.5rem 0.75rem;
-    border-radius: var(--radius);
-    color: var(--text);
+    padding: 0.375rem 0.625rem;
+    border-radius: var(--radius-md);
+    color: var(--text-secondary);
+    font-size: var(--fs-sm);
+    font-weight: 560;
+    letter-spacing: 0.005em;
     text-decoration: none;
+    white-space: nowrap;
+    transition:
+      background-color var(--dur-1) var(--ease),
+      color var(--dur-1) var(--ease);
   }
 
-  a:hover {
-    background: var(--surface-sunken);
+  .nav__link:hover {
+    background: var(--raised);
+    color: var(--text-primary);
   }
 
-  a[aria-current='page'] {
-    background: var(--surface-sunken);
+  .nav__link[aria-current='page'] {
+    color: var(--text-primary);
+  }
+
+  /* Seated on the bar's own edge rather than under the label. It carries a transition
+     name, so it slides between destinations instead of blinking out and back. */
+  .nav__marker {
+    position: absolute;
+    right: 0.625rem;
+    bottom: calc(-0.5 * (var(--nav-height) - 100%) - 1px);
+    left: 0.625rem;
+    height: 2px;
+    border-radius: var(--radius-full) var(--radius-full) 0 0;
+    background: var(--accent);
+  }
+
+  .topbar__end {
+    display: flex;
+    gap: 0.5rem;
+    align-items: center;
+    margin-left: auto;
+  }
+
+  .guild {
+    display: inline-flex;
+    gap: 0.25rem;
+    align-items: center;
+    max-width: 14rem;
+    padding: 0.25rem 0.5rem 0.25rem 0.625rem;
+    border: 1px solid var(--border);
+    border-radius: var(--radius-md);
+    background: var(--raised);
+    color: var(--text-primary);
+    font-size: var(--fs-sm);
+    font-weight: 560;
+    text-decoration: none;
+    transition:
+      background-color var(--dur-1) var(--ease),
+      border-color var(--dur-1) var(--ease);
+  }
+
+  .guild:hover {
+    background: var(--hover);
+    border-color: var(--border-strong);
+    color: var(--text-primary);
+  }
+
+  .guild__name {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .guild__caret {
+    width: 12px;
+    height: 12px;
+    flex: none;
+    color: var(--text-tertiary);
+  }
+
+  /* Quiet rather than amber. The nav marker already spends this screen's amber on
+     where you are, and the One Amber Rule allows one more, which belongs to whatever
+     the page itself is asking for. */
+  .create {
+    padding-inline: 0.625rem;
+  }
+
+  .create__plus {
+    width: 12px;
+    height: 12px;
+    flex: none;
     color: var(--accent);
-    font-weight: 600;
+  }
+
+  .who {
+    color: var(--text-tertiary);
+    font-size: var(--fs-sm);
+    white-space: nowrap;
+  }
+
+  .visually-hidden {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip-path: inset(50%);
+    white-space: nowrap;
+  }
+
+  /* Three destinations do not earn a hamburger. Below this the links take their own
+     row and scroll sideways if they must. */
+  @media (max-width: 52rem) {
+    .topbar__inner {
+      flex-wrap: wrap;
+      gap: 0 0.75rem;
+      padding-bottom: 0;
+    }
+
+    .nav {
+      order: 3;
+      flex-basis: 100%;
+      margin: 0 -1.25rem;
+      padding: 0 1.25rem;
+      overflow-x: auto;
+      scrollbar-width: none;
+    }
+
+    .nav ul {
+      padding-bottom: 0.25rem;
+    }
+
+    .nav__marker {
+      bottom: -0.25rem;
+    }
+
+    .who {
+      display: none;
+    }
+
+    /* The label goes, the button stays. It is the one control worth its width here,
+       and the plus alone is not ambiguous next to a nav row that says Events. */
+    .create__label {
+      position: absolute;
+      width: 1px;
+      height: 1px;
+      overflow: hidden;
+      clip-path: inset(50%);
+      white-space: nowrap;
+    }
+  }
+
+  @media (min-width: 60rem) {
+    .topbar__inner {
+      padding-inline: 2rem;
+    }
   }
 </style>

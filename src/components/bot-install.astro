@@ -1,0 +1,26 @@
+---
+import { BOT_INVITE, DISCORD_MARK } from '../lib/brand';
+
+/**
+ * The landing page's install button, for the empty screens inside the dashboard.
+ *
+ * An empty roster or an empty calendar usually means one thing: Raider Mate is not in
+ * the guild yet. Signing in works regardless, so somebody can get this far and find
+ * four blank pages with no way to fix it. This is the way to fix it.
+ */
+---
+
+<a class="button" href={BOT_INVITE} rel="noreferrer">
+  <svg class="glyph" viewBox="0 0 24 18" aria-hidden="true" focusable="false">
+    <path fill="currentColor" d={DISCORD_MARK}></path>
+  </svg>
+  Add the bot to your server
+</a>
+
+<style>
+  .glyph {
+    width: auto;
+    height: 1em;
+    flex: none;
+  }
+</style>

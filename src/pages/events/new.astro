@@ -1,0 +1,381 @@
+---
+import DashboardLayout from '../../layouts/dashboard-layout.astro';
+import { hasLink } from '../../lib/links';
+import { noticeFor } from '../../lib/service-notice';
+import type { GuildCapabilities, GuildSettings } from '../../lib/service-types';
+
+export const prerender = false;
+
+const { session, actor, client } = Astro.locals;
+
+if (!session!.selectedGuildId) {
+  return Astro.redirect('/guild');
+}
+
+const guildId = session!.selectedGuildId;
+
+const NOTICES: Record<string, string> = {
+  invalid: 'Check the fields below. Something in there is not a raid.',
+  backwards: 'Signups would close after the raid starts. Check the two times.',
+  nochannel: 'This guild has no events channel, so there is nowhere to post the sheet.',
+  denied: 'Only raid leads can create events.',
+  failed: 'Raider Mate would not take that.',
+  unreachable: 'Raider Mate is not answering right now.',
+};
+const notice = NOTICES[Astro.url.searchParams.get('notice') ?? ''];
+
+// Asked here rather than read off the session: this is the page the answer gates, and a
+// fifteen-minute-old cache is the wrong thing to enforce authorisation with. The link
+// is the answer, never the booleans beside it (hard rule 2).
+let mayCreate = false;
+let settings: GuildSettings | null = null;
+let failure: string | null = null;
+
+try {
+  const [capabilities, guildSettings] = await Promise.all([
+    client.get<GuildCapabilities>(actor, `/api/guilds/${guildId}/capabilities`),
+    client.get<GuildSettings>(actor, `/api/guilds/${guildId}/settings`),
+  ]);
+  mayCreate = hasLink(capabilities, 'create-event');
+  settings = guildSettings;
+} catch (error) {
+  failure = noticeFor(error);
+}
+
+const timezone = settings?.timezone ?? null;
+const hasChannel = settings?.events_channel_id !== undefined;
+// The Configuration entry is the fix for a missing events channel, so only offer it to
+// somebody who can actually get in there.
+const mayConfigure = session!.abilities?.configure ?? session!.guildAdmin;
+
+const TYPES = [
+  { value: 'RAID', label: 'Raid', hint: 'A raid night, with a comp to fill' },
+  { value: 'MYTHIC_PLUS', label: 'Mythic+', hint: 'Five people, one tank, one healer' },
+];
+
+const DIFFICULTIES = [
+  { value: 'NORMAL', label: 'Normal' },
+  { value: 'HEROIC', label: 'Heroic' },
+  { value: 'MYTHIC', label: 'Mythic' },
+];
+
+const SIZES = [
+  { name: 'tanks', label: 'Tanks' },
+  { name: 'healers', label: 'Healers' },
+  { name: 'max_melee', label: 'Melee' },
+  { name: 'max_ranged', label: 'Ranged' },
+];
+---
+
+<DashboardLayout title="New event">
+  <p slot="head" class="muted">
+    Raider Mate posts the signup sheet in {session!.selectedGuildName} and takes answers from there, the
+    same as <code>/raid create</code> and <code>/dungeon create</code> in Discord.
+  </p>
+
+  {notice && <p class="notice">{notice}</p>}
+  {failure && <p class="notice">{failure}</p>}
+
+  {
+    !failure && !mayCreate && (
+      <div class="panel">
+        <div class="empty">
+          <h3>Raid leads only</h3>
+          <p>
+            Creating an event needs one of the Discord roles this guild mapped as a raid lead.
+            Everything else in here is yours either way.
+          </p>
+        </div>
+      </div>
+    )
+  }
+
+  {
+    mayCreate && !hasChannel && (
+      <div class="panel">
+        <div class="empty">
+          <h3>Nowhere to post it</h3>
+          <p>
+            The bot posts the signup sheet in the guild's events channel, and this guild has not
+            picked one. A slash command can fall back to whichever channel it was run in; this page
+            has no such channel to fall back to.
+          </p>
+          {mayConfigure ? (
+            <a class="button" href="/guild/config">
+              Set the events channel
+            </a>
+          ) : (
+            <p class="muted">Ask somebody who can reach the guild configuration to set one.</p>
+          )}
+        </div>
+      </div>
+    )
+  }
+
+  {
+    mayCreate && hasChannel && (
+      <form method="post" action="/events/create" data-astro-reload>
+        <section class="panel section">
+          <div class="panel__head">
+            <h2>What you are running</h2>
+          </div>
+          <div class="panel__body">
+            <fieldset class="field field--wide group">
+              <legend class="label">Type</legend>
+              <div class="types">
+                {TYPES.map((type, index) => (
+                  <label class="type">
+                    <input
+                      id={`type-${type.value}`}
+                      type="radio"
+                      name="type"
+                      value={type.value}
+                      checked={index === 0}
+                    />
+                    <span class="type__name">{type.label}</span>
+                    <span class="type__hint">{type.hint}</span>
+                  </label>
+                ))}
+              </div>
+            </fieldset>
+
+            <div class="field">
+              <label for="title">Title</label>
+              <p class="hint">What a raider reads in the channel, e.g. "Ulduar".</p>
+              <input id="title" name="title" type="text" required autocomplete="off" />
+            </div>
+
+            <div class="field difficulty">
+              <label for="difficulty">Difficulty</label>
+              <p class="hint">Normal, Heroic or Mythic. Leave it unset for a casual night.</p>
+              <select id="difficulty" name="difficulty">
+                <option value="">Not set</option>
+                {DIFFICULTIES.map((difficulty) => (
+                  <option value={difficulty.value}>{difficulty.label}</option>
+                ))}
+              </select>
+            </div>
+          </div>
+        </section>
+
+        <section class="panel section">
+          <div class="panel__head">
+            <h2>When</h2>
+            <span class="badge">{timezone ?? 'UTC'}</span>
+          </div>
+          <div class="panel__body">
+            {!timezone && (
+              <p class="hint hint--loud">
+                This guild has set no timezone, so both times below are read as UTC. An admin can
+                fix that in the configuration.
+              </p>
+            )}
+
+            <div class="times">
+              <div class="field">
+                <label for="starts_at">Starts</label>
+                <p class="hint">When the raid pulls.</p>
+                <input id="starts_at" name="starts_at" type="datetime-local" required />
+              </div>
+
+              <div class="field">
+                <label for="signup_deadline">Signups close</label>
+                <p class="hint">Left empty, an hour before the start, same as the bot.</p>
+                <input id="signup_deadline" name="signup_deadline" type="datetime-local" />
+              </div>
+            </div>
+
+            <div class="field">
+              <label for="reminder_lead_minutes">Reminder lead</label>
+              <p class="hint">
+                Minutes before the start that the reminder fires. 0 means no reminder, and empty
+                means whatever the guild set.
+              </p>
+              <input
+                id="reminder_lead_minutes"
+                name="reminder_lead_minutes"
+                type="number"
+                min="0"
+                max="1440"
+              />
+            </div>
+          </div>
+        </section>
+
+        <section class="panel section">
+          <div class="panel__head">
+            <h2>Comp</h2>
+          </div>
+          <div class="panel__body">
+            <p class="hint">
+              How many of each the raid wants. Leave a box empty and Raider Mate works it out when
+              the comp is locked, which is what most nights want.
+            </p>
+            <ul class="sizes">
+              {SIZES.map((size) => (
+                <li class="field field--narrow">
+                  <label for={size.name}>{size.label}</label>
+                  <input id={size.name} name={size.name} type="number" min="0" max="40" />
+                </li>
+              ))}
+            </ul>
+          </div>
+        </section>
+
+        <div class="actions">
+          <button class="button" type="submit">
+            Create and post it
+          </button>
+          <a class="button button--ghost" href="/events">
+            Cancel
+          </a>
+        </div>
+      </form>
+    )
+  }
+</DashboardLayout>
+
+<style>
+  /* Wider than a text field, because the two choices sit side by side. */
+  .field--wide {
+    max-width: 34rem;
+  }
+
+  /* A fieldset carries the radio group's accessible name and nothing else, so its own
+     box goes. The track below it is what a raider sees. */
+  .group {
+    min-width: 0;
+    margin-inline: 0;
+    padding: 0;
+    border: 0;
+  }
+
+  .group legend {
+    margin-bottom: 0.5rem;
+    padding: 0;
+  }
+
+  /* No track around the pair. Two choices this size do not need a box drawn to say they
+     belong together, and the chosen one carries the accent instead. */
+  .types {
+    display: flex;
+    gap: 0.5rem;
+  }
+
+  .type {
+    flex: 1;
+    padding: 0.625rem 0.875rem;
+    border: 1px solid transparent;
+    border-radius: var(--radius-lg);
+    background: var(--raised);
+    color: var(--text-secondary);
+    cursor: pointer;
+    transition:
+      background-color var(--dur-1) var(--ease),
+      border-color var(--dur-1) var(--ease),
+      color var(--dur-1) var(--ease);
+  }
+
+  .type:hover {
+    color: var(--text-primary);
+  }
+
+  /* The radio still holds the state and still takes the arrow keys; it is only the dot
+     that goes, because the segment itself is now the thing that looks chosen. */
+  .type input {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip-path: inset(50%);
+  }
+
+  /* The chosen mode reshapes the rest of the form, so it is worth the accent: this is
+     where you are, which is what amber is for. The same tint config.astro gives a role
+     that is switched on. */
+  .type:has(input:checked) {
+    border-color: color-mix(in srgb, var(--accent) 45%, transparent);
+    background: color-mix(in srgb, var(--accent) 10%, transparent);
+    color: var(--text-primary);
+  }
+
+  .type:has(input:checked) .type__name {
+    color: var(--accent);
+  }
+
+  .type:has(input:focus-visible) {
+    border-color: var(--accent);
+    box-shadow: var(--ring);
+  }
+
+  .type__name {
+    display: block;
+    font-size: var(--fs-sm);
+    font-weight: 600;
+  }
+
+  .type__hint {
+    display: block;
+    margin-top: 0.125rem;
+    color: var(--text-tertiary);
+    font-size: var(--fs-xs);
+  }
+
+  /* Difficulty is a raid's word. A Mythic+ group has no such thing, so the field leaves
+     rather than sitting there explaining that it will be ignored. No JavaScript: the
+     radio already carries the state, and :has reads it. */
+  form:has(#type-MYTHIC_PLUS:checked) .difficulty {
+    display: none;
+  }
+
+  /* The one hint that is a warning rather than an aside: times read in the wrong zone
+     post the raid an hour out and nobody notices until the night. */
+  .hint--loud {
+    max-width: 60ch;
+    margin-bottom: 1.25rem;
+    padding-left: 0.75rem;
+    border-left: 2px solid var(--accent);
+    color: var(--text-secondary);
+  }
+
+  .times {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 1.5rem;
+  }
+
+  .times .field {
+    flex: 1 1 16rem;
+    max-width: 20rem;
+    margin-bottom: 1.5rem;
+  }
+
+  .sizes {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.75rem;
+    margin: 0.75rem 0 0;
+    padding: 0;
+    list-style: none;
+  }
+
+  .field--narrow {
+    width: 6.5rem;
+    max-width: none;
+    margin-bottom: 0;
+  }
+
+  .actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+    margin-top: 1.5rem;
+  }
+
+  code {
+    padding: 0.1em 0.35em;
+    border-radius: var(--radius-sm);
+    background: var(--raised);
+    font-size: 0.92em;
+  }
+</style>

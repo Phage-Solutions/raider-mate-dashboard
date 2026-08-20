@@ -1,0 +1,40 @@
+---
+/** The bar on every page a signed-out visitor can reach. */
+---
+
+<header class="top">
+  <a class="brand" href="/">
+    <img src="/icon-512.webp" alt="" width="22" height="22" />
+    <span>Raider Mate</span>
+  </a>
+  <a class="button button--quiet" href="/auth/discord">Sign in with Discord</a>
+</header>
+
+<style>
+  .top {
+    display: flex;
+    gap: 1rem;
+    align-items: center;
+    justify-content: space-between;
+    width: min(var(--page-width), 100%);
+    margin: 0 auto;
+    padding: 1rem 1.25rem;
+  }
+
+  .brand {
+    display: inline-flex;
+    gap: 0.5rem;
+    align-items: center;
+    color: var(--text-primary);
+    font-size: var(--fs-md);
+    font-weight: 640;
+    letter-spacing: -0.014em;
+    text-decoration: none;
+  }
+
+  @media (min-width: 60rem) {
+    .top {
+      padding-inline: 2rem;
+    }
+  }
+</style>

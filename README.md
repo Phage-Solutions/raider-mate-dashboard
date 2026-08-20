@@ -1,6 +1,6 @@
 # raider-mate-dashboard
 
-Web dashboard for [Raider Mate](https://github.com/Phage-Solutions/raider-mate-service),
+Web dashboard for [Raider Mate](https://github.com/Raider-Mate/raider-mate-service),
 a WoW raid and Mythic+ signup system built around the fact that raiders play more than
 one role.
 
@@ -33,8 +33,9 @@ make test     # vitest over the pure parts of src/lib
 
 ## What works today
 
-Discord sign-in, a guild picker, and an overview page listing the guild's upcoming
-events. The roster view, event view and comp builder come next; see `docs/design.md`.
+Discord sign-in, a guild picker, the guild roster, and an event view showing signups
+alongside the locked comp. Raiders can set their own signup status from it. The comp
+builder comes next; see `docs/design.md`.
 
 ## Credits
 

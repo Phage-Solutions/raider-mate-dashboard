@@ -1,0 +1,207 @@
+---
+import BotInstall from '../components/bot-install.astro';
+import DashboardLayout from '../layouts/dashboard-layout.astro';
+import { noticeFor } from '../lib/service-notice';
+import { classColor } from '../lib/wow-class';
+import type { Character } from '../lib/service-types';
+
+export const prerender = false;
+
+const { session, actor, client } = Astro.locals;
+
+if (!session!.selectedGuildId) {
+  return Astro.redirect('/guild');
+}
+
+let characters: Character[] = [];
+let failure: string | null = null;
+
+try {
+  // Already ordered by name. Sorting again here would be this repo deciding something
+  // the service decided.
+  characters = await client.get<Character[]>(
+    actor,
+    `/api/guilds/${session!.selectedGuildId}/characters`,
+  );
+} catch (error) {
+  failure = noticeFor(error);
+}
+---
+
+<DashboardLayout title="Roster">
+  <p slot="head" class="muted">
+    Every character registered in {session!.selectedGuildName}, with what the last sync found.
+  </p>
+
+  {
+    characters.length > 0 && (
+      <span slot="actions" class="badge">
+        {characters.length} characters
+      </span>
+    )
+  }
+
+  {failure && <p class="notice">{failure}</p>}
+
+  {
+    !failure && characters.length === 0 && (
+      <div class="panel">
+        <div class="empty">
+          <h3>No characters yet</h3>
+          <p>
+            Raiders register their own characters through the bot in Discord. Once they do, item
+            level and Mythic+ score land here on the next sync.
+          </p>
+          <BotInstall />
+        </div>
+      </div>
+    )
+  }
+
+  {
+    characters.length > 0 && (
+      <div class="panel">
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th scope="col">Character</th>
+                <th scope="col">Class</th>
+                <th scope="col" class="num">
+                  Item level
+                </th>
+                <th scope="col" class="num">
+                  Mythic+
+                </th>
+              </tr>
+            </thead>
+            <tbody>
+              {characters.map((character) => (
+                <tr>
+                  <th scope="row">
+                    <a class="name" href={character.raiderio_url} rel="noreferrer">
+                      {character.name}
+                    </a>
+                    {character.is_main && <span class="badge main">Main</span>}
+                  </th>
+                  <td class="class">
+                    {/* A marker, never the text colour: Death Knight red and Rogue
+                        yellow do not clear 4.5:1 on this background. */}
+                    <span
+                      class="class__mark"
+                      style={`background: ${classColor(character.class) ?? 'var(--border-strong)'}`}
+                      aria-hidden="true"
+                    />
+                    <span>
+                      {character.class ?? <span class="dash">Unknown</span>}
+                      {character.spec && <span class="spec"> {character.spec}</span>}
+                    </span>
+                  </td>
+                  {/* Not synced and no item level are different facts, and a blank cell
+                      says the wrong one. */}
+                  {character.synced ? (
+                    <>
+                      <td class="num ilvl">
+                        {character.ilvl ?? <span class="dash">&mdash;</span>}
+                      </td>
+                      <td class="num mplus">
+                        {character.mplus_score ?? <span class="dash">&mdash;</span>}
+                      </td>
+                    </>
+                  ) : (
+                    <td class="num unsynced" colspan="2">
+                      Not synced yet
+                    </td>
+                  )}
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    )
+  }
+</DashboardLayout>
+
+<style>
+  .name {
+    color: var(--text-primary);
+    font-weight: 560;
+    text-decoration: none;
+  }
+
+  .name:hover {
+    color: var(--accent);
+  }
+
+  .main {
+    margin-left: 0.5rem;
+  }
+
+  .class {
+    color: var(--text-secondary);
+  }
+
+  .class > span:last-child {
+    display: inline-flex;
+    gap: 0.375rem;
+    align-items: baseline;
+  }
+
+  .class__mark {
+    display: inline-block;
+    width: 3px;
+    height: 0.9em;
+    margin-right: 0.5rem;
+    border-radius: var(--radius-full);
+    vertical-align: -0.1em;
+  }
+
+  .spec {
+    color: var(--text-tertiary);
+  }
+
+  .unsynced {
+    color: var(--text-tertiary);
+    font-size: var(--fs-sm);
+  }
+
+  @media (max-width: 44rem) {
+    thead {
+      display: none;
+    }
+
+    tbody tr {
+      display: grid;
+      grid-template-columns: 1fr auto;
+      gap: 0.25rem 0.75rem;
+      padding: 0.875rem 1rem;
+      border-bottom: 1px solid var(--border-subtle);
+    }
+
+    tbody th,
+    tbody td {
+      padding: 0;
+      border: 0;
+      text-align: left;
+    }
+
+    tbody th {
+      grid-column: 1 / -1;
+    }
+
+    .num {
+      font-size: var(--fs-sm);
+    }
+
+    .ilvl::before {
+      content: 'iLvl ';
+      color: var(--text-tertiary);
+    }
+
+    .mplus::before {
+      content: 'M+ ';
+      color: var(--text-tertiary);
+    }
+  }
+</style>

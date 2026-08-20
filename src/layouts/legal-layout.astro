@@ -1,0 +1,113 @@
+---
+import PublicFooter from '../components/public-footer.astro';
+import PublicHeader from '../components/public-header.astro';
+import BaseLayout from './base-layout.astro';
+
+interface Props {
+  title: string;
+  description: string;
+  updated: string;
+}
+
+const { title, description, updated } = Astro.props;
+---
+
+<BaseLayout title={title} description={description} indexable>
+  <PublicHeader />
+  <main class="page" id="main">
+    <article class="prose">
+      <h1>{title}</h1>
+      <p class="updated">Last updated <time datetime={updated}>{updated}</time></p>
+      <slot />
+    </article>
+  </main>
+  <PublicFooter />
+</BaseLayout>
+
+<style>
+  .page {
+    width: min(var(--page-width), 100%);
+    margin: 0 auto;
+    padding: 2rem 1.25rem 5rem;
+  }
+
+  /* Read mode: one column at a comfortable measure, and nothing else competing. */
+  .prose {
+    max-width: 68ch;
+  }
+
+  .prose h1 {
+    font-size: clamp(1.875rem, 4.5vw, 2.5rem);
+    font-weight: 680;
+    letter-spacing: -0.03em;
+  }
+
+  .updated {
+    margin-top: 0.75rem;
+    color: var(--text-tertiary);
+    font-family: var(--mono);
+    font-size: var(--fs-xs);
+  }
+
+  /* Deep selectors: the sections come in through the slot, so scoping cannot see them. */
+  .prose :global(h2) {
+    margin-top: 2.75rem;
+    margin-bottom: 0.75rem;
+    font-size: var(--fs-xl);
+    font-weight: 640;
+    letter-spacing: -0.022em;
+  }
+
+  .prose :global(h3) {
+    margin-top: 1.75rem;
+    margin-bottom: 0.5rem;
+    font-size: var(--fs-lg);
+    font-weight: 600;
+  }
+
+  .prose :global(p),
+  .prose :global(li) {
+    color: var(--text-secondary);
+    font-size: var(--fs-base, 0.9375rem);
+    line-height: 1.7;
+    text-wrap: pretty;
+  }
+
+  .prose :global(p) {
+    margin-top: 0.875rem;
+  }
+
+  .prose :global(ul) {
+    margin: 0.875rem 0 0;
+    padding-left: 1.125rem;
+  }
+
+  .prose :global(li) {
+    margin-top: 0.4rem;
+  }
+
+  .prose :global(li)::marker {
+    color: var(--text-tertiary);
+  }
+
+  .prose :global(strong) {
+    color: var(--text-primary);
+    font-weight: 600;
+  }
+
+  .prose :global(dl) {
+    margin: 0.875rem 0 0;
+  }
+
+  .prose :global(dt) {
+    margin-top: 0.875rem;
+    color: var(--text-primary);
+    font-weight: 600;
+  }
+
+  .prose :global(dd) {
+    margin: 0.25rem 0 0;
+    color: var(--text-secondary);
+    line-height: 1.7;
+  }
+</style>

@@ -1,0 +1,140 @@
+---
+/*
+ * Premium is described as intended rather than available on purpose. There is no
+ * billing code in raider-mate-service, so any sentence written in the present tense
+ * about taking payment would be false today.
+ */
+import LegalLayout from '../layouts/legal-layout.astro';
+import { COMPANY_URL, ORG_URL } from '../lib/brand';
+
+export const prerender = false;
+
+const UPDATED = '2026-08-20';
+---
+
+<LegalLayout
+  title="Terms of Service"
+  description="The terms for using the hosted instance of Raider Mate. Self-hosting is covered by the AGPL instead."
+  updated={UPDATED}
+>
+  <h2>Who you are agreeing with</h2>
+  <p>
+    These terms are between you and{' '}
+    <strong><a href={COMPANY_URL} rel="noreferrer">Phage Solutions, s.r.o.</a></strong>, a limited
+    liability company registered in Slovakia at Lermontovova 911/3, 811 05 Bratislava. Company ID
+    (IČO) 53151178, VAT ID (IČ DPH) SK2121316010, Commercial Register (ORSR) insert number 147154/B.
+    Reach us at <a href="mailto:dpo@phage.sk">dpo@phage.sk</a>.
+  </p>
+  <p>
+    They cover <strong>the hosted instance only</strong>. Raider Mate is free software under the
+    AGPL, and if you run your own copy these terms do not apply to you at all. The{' '}
+    <a href="/privacy">Privacy Policy</a> explains what the hosted instance does with your data.
+  </p>
+
+  <h2>What Raider Mate does</h2>
+  <p>
+    A Discord bot posts your raid nights and takes signups. A service works out a composition from
+    those signups and from character data synced from Raider.IO. This dashboard is where a raid lead
+    reads that composition, overrides it, and looks at the roster behind it.
+  </p>
+
+  <h2>Using it</h2>
+  <p>
+    You need a Discord account, and you have to be old enough to hold one. To add the bot to a
+    server you need permission to do that in that server. Adding it means the people in it will have
+    their signups and characters handled as the Privacy Policy describes, so tell them.
+  </p>
+  <p>Do not:</p>
+  <ul>
+    <li>use Raider Mate to harass anyone, or to store abusive content in notes or event titles;</li>
+    <li>try to reach another guild's data;</li>
+    <li>attack the service, flood it with requests, or work around its rate limits;</li>
+    <li>resell access to the hosted instance as if it were yours.</li>
+  </ul>
+  <p>
+    Running your own instance and charging for it is a different matter. The AGPL permits that, and
+    these terms do not restrict it.
+  </p>
+
+  <h2>Your guild's data</h2>
+  <p>
+    The roster, the signups and the compositions are your guild's, not ours. You give us permission
+    to store and process them only so far as running the service needs, and for nothing else. We do
+    not use them to train anything, and we do not sell them.
+  </p>
+  <p>
+    Raid leads can move anyone anywhere in a composition, and Raider Mate writes down what they
+    asked for without checking it. What a composition says is your raid lead's decision, not ours.
+  </p>
+
+  <h2>Premium</h2>
+  <p>
+    Some of what Raider Mate can show, including the analysis views, is intended to sit behind a
+    paid tier priced at <strong>€2.99 per month</strong> or <strong>€29.99 per year</strong>. Both
+    prices include VAT, so what is written is what you pay. Payment will be handled by Stripe.
+  </p>
+  <p>
+    <strong>Premium is not open yet.</strong> There is no billing in the service today, nothing can be
+    charged, and no payment details exist. When it does open, these terms will gain the parts that a paid
+    subscription needs, including how to cancel and how refunds work, and you will not be charged under
+    terms you have not seen.
+  </p>
+
+  <h2>Availability</h2>
+  <p>
+    We run the hosted instance carefully but we do not promise it will be up when you need it. There
+    is no uptime guarantee. Raid nights have gone ahead without software for twenty years and can do
+    so again.
+  </p>
+  <p>
+    Raider Mate depends on Discord and on Raider.IO. When either is down or changes how it works,
+    parts of Raider Mate stop working, and that is outside our control.
+  </p>
+
+  <h2>Stopping</h2>
+  <p>
+    Remove the bot from your server whenever you like. That server's data is deleted within 30 days,
+    as the Privacy Policy sets out.
+  </p>
+  <p>
+    We may suspend or remove access to the hosted instance if it is being used against the rules
+    above, or if we have to for legal or security reasons. Where it is reasonable to warn you first,
+    we will.
+  </p>
+  <p>
+    If we ever shut the hosted instance down we will give notice in time for guilds to export what
+    matters or move to their own instance.
+  </p>
+
+  <h2>What we do not promise</h2>
+  <p>
+    Raider Mate is provided as it is. To the extent the law allows, we exclude implied warranties,
+    and we are not liable for indirect or consequential loss, for lost raid progress, or for
+    anything arising from a composition a raid lead chose.
+  </p>
+  <p>
+    Nothing here limits liability for death or personal injury caused by negligence, for fraud, or
+    for anything else that cannot be limited by law. If you are a consumer, your statutory rights
+    are unaffected by anything on this page.
+  </p>
+
+  <h2>Changes</h2>
+  <p>
+    When these terms change, the date at the top changes. A change that materially affects you will
+    be announced somewhere you will see it rather than slipped in here.
+  </p>
+
+  <h2>Governing law</h2>
+  <p>
+    Slovak law governs these terms, and the Slovak courts have jurisdiction. If you are a consumer
+    resident elsewhere in the EU, this does not deprive you of the protection of the mandatory rules
+    of your own country, and you may bring proceedings there.
+  </p>
+
+  <h2>Contact</h2>
+  <p>
+    <a href="mailto:dpo@phage.sk">dpo@phage.sk</a>. The{' '}
+    <a href={ORG_URL} rel="noreferrer">source</a> is public if you would rather read what it does than
+    what we say it does.
+  </p>
+</LegalLayout>

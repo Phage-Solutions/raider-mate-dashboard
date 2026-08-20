@@ -14,6 +14,19 @@ export interface Actor {
 }
 
 /**
+ * An actor for the one call made before a guild is chosen: asking the service which
+ * guilds it knows this person in.
+ *
+ * The service parses a guild header on every API request, so this sends 0, which is not
+ * a snowflake any guild can have. The route it is for ignores the actor's guild by
+ * design, because it is asked precisely to find out which guild to work in, and it
+ * refuses to answer about anybody but the caller. Nothing else may use this.
+ */
+export function actorBeforeGuildChosen(discordId: string): Actor {
+  return { discordId, guildId: '0', roleIds: [], guildAdmin: false };
+}
+
+/**
  * The four headers requireAuth in the service parses. Nothing here may originate in
  * the browser: the service performs no verification of its own, so a guild id taken
  * from a query string would be a tenant boundary the caller chooses for themselves.

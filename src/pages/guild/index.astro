@@ -1,62 +1,264 @@
 ---
 import DashboardLayout from '../../layouts/dashboard-layout.astro';
-import { fetchGuilds } from '../../lib/discord-oauth';
+import { actorBeforeGuildChosen } from '../../lib/actor';
+import { fetchGuildAbilities } from '../../lib/capabilities';
+import { cookiesSecure, sessionSecret } from '../../lib/config';
+import { fetchGuildRoleIds, fetchGuilds } from '../../lib/discord-oauth';
+import { sealSession, SESSION_COOKIE, sessionCookieOptions } from '../../lib/session';
+import type { UserGuild } from '../../lib/service-types';
 
 export const prerender = false;
 
 const session = Astro.locals.session!;
+const client = Astro.locals.client;
 
 // Discord's guild list is fetched here rather than carried in the session cookie: a
 // raider in fifty guilds would push the cookie past 4KB, and this page is the only one
 // that needs the list.
 const guilds = await fetchGuilds(session.accessToken);
+
+// Which of those Raider Mate actually knows them in. A raider is in far more Discord
+// servers than they raid with, and asking them to find the right one in that pile is
+// the thing this page used to get wrong.
+let known = new Set<string>();
+let serviceAnswered = true;
+try {
+  const rows = await client.get<UserGuild[]>(
+    actorBeforeGuildChosen(session.discordId),
+    `/api/users/${session.discordId}/guilds`,
+  );
+  known = new Set(rows.map((row) => row.discord_guild_id));
+} catch {
+  // The service being unreachable is not a reason to block the picker. Fall back to the
+  // plain list, which is what this page did before it could ask.
+  serviceAnswered = false;
+}
+
+const running = guilds.filter((guild) => known.has(guild.id));
+const others = guilds.filter((guild) => !known.has(guild.id));
+
+/**
+ * One guild, nothing chosen yet, and the service put it in front of us: pick it. The id
+ * survives the same check `POST /guild/select` makes, because it came from Discord's own
+ * list of this raider's servers rather than from anything a browser sent.
+ */
+if (!session.selectedGuildId && running.length === 1) {
+  const only = running[0]!;
+  const roleIds = await fetchGuildRoleIds(session.accessToken, only.id);
+  const abilities = await fetchGuildAbilities(
+    client,
+    { discordId: session.discordId, guildId: only.id, roleIds, guildAdmin: only.admin },
+    only.id,
+  );
+  Astro.cookies.set(
+    SESSION_COOKIE,
+    await sealSession(
+      {
+        ...session,
+        selectedGuildId: only.id,
+        selectedGuildName: only.name,
+        roleIds,
+        guildAdmin: only.admin,
+        abilities,
+        actorFetchedAt: Date.now(),
+      },
+      sessionSecret,
+    ),
+    sessionCookieOptions(cookiesSecure),
+  );
+  return Astro.redirect('/dashboard');
+}
+
 const rejected = Astro.url.searchParams.get('error') === 'guild';
+
+const iconFor = (guild: { id: string; icon: string | null }) =>
+  guild.icon ? `https://cdn.discordapp.com/icons/${guild.id}/${guild.icon}.png?size=64` : null;
 ---
 
 <DashboardLayout title="Choose a guild">
-  <p class="muted">
-    Every Discord server you are in is listed. Raider Mate only has data for the ones running it, so
-    the rest will look empty.
+  <p slot="head" class="muted">
+    {
+      serviceAnswered && running.length > 0
+        ? 'These are the servers Raider Mate already knows you in.'
+        : 'Every Discord server you are in is listed. Raider Mate only has data for the ones running it, so the rest will look empty.'
+    }
   </p>
 
   {rejected && <p class="notice">That guild is not one of yours. Pick one from the list.</p>}
 
-  <ul>
-    {
-      guilds.map((guild) => (
-        <li>
-          <form method="post" action="/guild/select">
-            <input type="hidden" name="guild_id" value={guild.id} />
-            <button
-              class="button button--quiet"
-              type="submit"
-              aria-current={session.selectedGuildId === guild.id ? 'true' : undefined}
-            >
-              {guild.name}
-            </button>
-          </form>
-        </li>
-      ))
-    }
-  </ul>
+  {
+    running.length > 0 && (
+      <section class="group">
+        <ul>
+          {running.map((guild) => (
+            <li>
+              <form method="post" action="/guild/select" data-astro-reload>
+                <input type="hidden" name="guild_id" value={guild.id} />
+                <button
+                  class="guild"
+                  type="submit"
+                  aria-current={session.selectedGuildId === guild.id ? 'true' : undefined}
+                >
+                  {iconFor(guild) ? (
+                    <img
+                      class="guild__icon"
+                      src={iconFor(guild)}
+                      alt=""
+                      width="32"
+                      height="32"
+                      loading="lazy"
+                    />
+                  ) : (
+                    <span class="guild__icon guild__icon--letter" aria-hidden="true">
+                      {guild.name.slice(0, 1)}
+                    </span>
+                  )}
+                  <span class="guild__name">{guild.name}</span>
+                  {session.selectedGuildId === guild.id && <span class="badge">Current</span>}
+                </button>
+              </form>
+            </li>
+          ))}
+        </ul>
+      </section>
+    )
+  }
+
+  {
+    others.length > 0 && (
+      <section class="group">
+        <h2>Your other servers</h2>
+        <p class="muted">
+          Raider Mate has nothing for these yet. Picking one shows an empty dashboard until the bot
+          is posting events there.
+        </p>
+        <ul>
+          {others.map((guild) => (
+            <li>
+              <form method="post" action="/guild/select" data-astro-reload>
+                <input type="hidden" name="guild_id" value={guild.id} />
+                <button
+                  class="guild guild--quiet"
+                  type="submit"
+                  aria-current={session.selectedGuildId === guild.id ? 'true' : undefined}
+                >
+                  {iconFor(guild) ? (
+                    <img
+                      class="guild__icon"
+                      src={iconFor(guild)}
+                      alt=""
+                      width="32"
+                      height="32"
+                      loading="lazy"
+                    />
+                  ) : (
+                    <span class="guild__icon guild__icon--letter" aria-hidden="true">
+                      {guild.name.slice(0, 1)}
+                    </span>
+                  )}
+                  <span class="guild__name">{guild.name}</span>
+                  {session.selectedGuildId === guild.id && <span class="badge">Current</span>}
+                </button>
+              </form>
+            </li>
+          ))}
+        </ul>
+      </section>
+    )
+  }
 </DashboardLayout>
 
 <style>
+  .group + .group {
+    margin-top: 2.5rem;
+  }
+
+  .group h2 {
+    font-size: var(--fs-lg);
+    letter-spacing: -0.014em;
+  }
+
+  .group p {
+    max-width: 60ch;
+    margin-top: 0.375rem;
+    font-size: var(--fs-sm);
+  }
+
   ul {
-    list-style: none;
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(17rem, 1fr));
+    gap: 0.5rem;
     margin: 1rem 0 0;
     padding: 0;
-    display: grid;
-    gap: 0.5rem;
+    list-style: none;
   }
 
-  button {
+  .guild {
+    display: flex;
+    gap: 0.75rem;
+    align-items: center;
     width: 100%;
+    padding: 0.625rem 0.875rem;
+    border: 1px solid var(--border);
+    border-radius: var(--radius-lg);
+    background: var(--surface);
+    color: var(--text-primary);
+    font: inherit;
+    font-size: var(--fs-md);
+    font-weight: 560;
     text-align: left;
+    cursor: pointer;
+    transition:
+      background-color var(--dur-1) var(--ease),
+      border-color var(--dur-1) var(--ease);
   }
 
-  button[aria-current='true'] {
+  .guild:hover {
+    background: var(--hover);
+    border-color: var(--border-strong);
+  }
+
+  .guild[aria-current='true'] {
     border-color: var(--accent);
-    color: var(--accent);
+  }
+
+  /* The servers Raider Mate has nothing for. Still reachable, just not competing with
+     the ones the raider actually came for. */
+  .guild--quiet {
+    background: transparent;
+    color: var(--text-secondary);
+    font-weight: 400;
+  }
+
+  .guild--quiet .guild__icon {
+    opacity: 0.65;
+  }
+
+  .guild__icon {
+    width: 32px;
+    height: 32px;
+    flex: none;
+    border-radius: var(--radius-full);
+    background: var(--raised);
+    object-fit: cover;
+  }
+
+  .guild__icon--letter {
+    display: grid;
+    place-items: center;
+    border: 1px solid var(--border);
+    color: var(--text-tertiary);
+    font-size: var(--fs-sm);
+    text-transform: uppercase;
+  }
+
+  .guild__name {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .guild .badge {
+    margin-left: auto;
   }
 </style>

@@ -1,11 +1,17 @@
 ---
+import { ClientRouter } from 'astro:transitions';
 import '../styles/global.css';
 
 interface Props {
   title: string;
+  /** Set on the one public page. Everything else stays out of search results. */
+  indexable?: boolean | undefined;
+  /** Rendered as the meta description and the share card text. Public pages only. */
+  description?: string | undefined;
 }
 
-const { title } = Astro.props;
+const { title, indexable = false, description } = Astro.props;
+const fullTitle = `${title} | Raider Mate`;
 ---
 
 <!doctype html>
@@ -13,10 +19,36 @@ const { title } = Astro.props;
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <!-- A guild's roster and raid times are nobody else's business, and this is behind
-         a login anyway. -->
-    <meta name="robots" content="noindex, nofollow" />
-    <title>{title} | Raider Mate</title>
+    <!-- Form controls, scrollbars and focus rings the browser draws itself. Without
+         this they arrive light on a near-black page. -->
+    <meta name="color-scheme" content="dark" />
+    <meta name="theme-color" content="#0b0d12" />
+    <!-- The same mark the bot posts under in Discord, so a raider arriving from an
+         event post lands on something they recognise. -->
+    <link rel="icon" type="image/webp" href="/icon-512.webp" />
+    <link rel="apple-touch-icon" href="/icon-512.webp" />
+    {
+      /* A guild's roster and raid times are nobody else's business, and every page but
+         the landing one is behind a login anyway. */
+      !indexable && <meta name="robots" content="noindex, nofollow" />
+    }
+    <title>{fullTitle}</title>
+    {
+      description && (
+        <>
+          <meta name="description" content={description} />
+          <meta property="og:title" content={fullTitle} />
+          <meta property="og:description" content={description} />
+          <meta property="og:type" content="website" />
+          <meta property="og:image" content="/icon-512.webp" />
+          <meta name="twitter:card" content="summary" />
+        </>
+      )
+    }
+    <!-- Carries the shared elements between pages: an events row travelling into the
+         event header, and the nav marker sliding between destinations. Where the View
+         Transitions API is missing this is an ordinary navigation and nothing is lost. -->
+    <ClientRouter />
   </head>
   <body>
     <a class="skip-link" href="#main">Skip to content</a>

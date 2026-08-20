@@ -1,0 +1,184 @@
+---
+/*
+ * Written against what the code actually does, not against a template. Every category
+ * below traces to a column in raider-mate-service's schema, a scope in the Discord
+ * OAuth request, or a call in src/lib. If a future change collects something new, this
+ * page changes in the same commit.
+ */
+import LegalLayout from '../layouts/legal-layout.astro';
+import { COMPANY_URL } from '../lib/brand';
+
+export const prerender = false;
+
+const UPDATED = '2026-08-20';
+---
+
+<LegalLayout
+  title="Privacy Policy"
+  description="What Raider Mate's hosted instance collects, why, who it goes to, and how long it is kept."
+  updated={UPDATED}
+>
+  <h2>Who this is about</h2>
+  <p>
+    Raider Mate is run by{' '}
+    <strong><a href={COMPANY_URL} rel="noreferrer">Phage Solutions, s.r.o.</a></strong>, a limited
+    liability company registered in Slovakia at Lermontovova 911/3, 811 05 Bratislava. Company ID
+    (IČO) 53151178, VAT ID (IČ DPH) SK2121316010, Commercial Register (ORSR) insert number 147154/B.
+    Under the GDPR we are the controller of the personal data described here. Write to <a
+      href="mailto:dpo@phage.sk">dpo@phage.sk</a
+    > about anything on this page.
+  </p>
+  <p>
+    This policy covers <strong>the hosted instance only</strong>, the one you reach by signing in
+    here and by inviting our bot. Raider Mate is free software under the AGPL and anyone may run
+    their own copy. If your guild runs its own instance, whoever runs it is the controller of your
+    data, not us, and this policy does not apply to them.
+  </p>
+
+  <h2>What we collect</h2>
+
+  <h3>From Discord, when you sign in</h3>
+  <p>
+    Signing in asks Discord for three permissions, and nothing beyond them: <code>identify</code>,{
+      ' '
+    }
+    <code>guilds</code> and <code>guilds.members.read</code>. That gives us your Discord user id and
+    username, the list of servers you are in, and your role ids in the server you are working with.
+    The role ids are the whole basis of deciding whether you are a raid lead.
+  </p>
+  <p>
+    These, together with your Discord access and refresh tokens, are held in a single encrypted
+    cookie in your browser. We do not copy them into a database. Signing out deletes the cookie, and
+    rotating our signing secret invalidates every cookie at once.
+  </p>
+
+  <h3>What the service stores</h3>
+  <p>The parts that have to outlive a browser session are kept in our database:</p>
+  <ul>
+    <li>Your Discord user id and the id of the server it is attached to.</li>
+    <li>
+      The characters you register: name, realm, region, class, specialisation, item level, Mythic+
+      score, which one is your main, and when each was last synced.
+    </li>
+    <li>Your signups: the status you set, any note you wrote, and any late request you filed.</li>
+    <li>Your guild's events, its compositions and its bench.</li>
+    <li>
+      Your guild's settings: which channel events go to, its timezone, and which roles get mentioned
+      or count as raid leads.
+    </li>
+  </ul>
+  <p>
+    We do not ask for or store your email address, your real name, your payment details or your
+    Discord password.
+  </p>
+
+  <h3>From Raider.IO</h3>
+  <p>
+    Character progression is public World of Warcraft data. We fetch it from Raider.IO using the
+    character name, realm and region you registered, and cache the result. We never send them
+    anything about you as a Discord user.
+  </p>
+
+  <h3>Automatically</h3>
+  <p>
+    Our servers keep short-lived technical logs of requests, including IP address, for security and
+    for working out why something broke.
+  </p>
+
+  <h2>Why we are allowed to hold it</h2>
+  <dl>
+    <dt>To run the service you asked for</dt>
+    <dd>
+      Article 6(1)(b), performance of a contract. Everything in the two lists above exists because a
+      raid roster cannot be built without it.
+    </dd>
+    <dt>To keep it working and unabused</dt>
+    <dd>
+      Article 6(1)(f), our legitimate interest in security, rate limiting and debugging. This covers
+      the technical logs.
+    </dd>
+  </dl>
+
+  <h2>Cookies</h2>
+  <p>
+    One cookie. It holds your session, it is encrypted with AES-GCM, it is <code>httpOnly</code> so no
+    script can read it, and it is <code>SameSite=Lax</code> so another site cannot use it. It is strictly
+    necessary to keep you signed in, which is why there is no cookie banner asking you to accept it.
+  </p>
+  <p>
+    There is no analytics, no advertising, no tracking pixel and no third-party script on this site.
+  </p>
+
+  <h2>Who else sees it</h2>
+  <ul>
+    <li>
+      <strong>Discord</strong> handles sign-in and receives the messages the bot posts. Their privacy
+      policy governs what they do with it.
+    </li>
+    <li>
+      <strong>Raider.IO</strong> receives character names, realms and regions when we refresh progression
+      data.
+    </li>
+    <li>
+      <strong>Scaleway</strong> hosts the service, in Amsterdam in the Netherlands, inside the EU.
+    </li>
+  </ul>
+  <p>
+    When Premium billing opens we intend to use <strong>Stripe</strong> as the payment processor, and
+    this page will name them properly before a single payment is taken. Today no payments are processed
+    and no payment data exists.
+  </p>
+  <p>We do not sell your data, and we do not share it for anyone else's advertising.</p>
+
+  <h2>Where it lives</h2>
+  <p>
+    The database and the service run inside the EU. Discord and Raider.IO are based in the United
+    States, so using Raider Mate means data reaches them under their own terms and safeguards.
+  </p>
+
+  <h2>How long we keep it</h2>
+  <ul>
+    <li>The session cookie lasts until you sign out or it expires.</li>
+    <li>
+      When the bot is removed from a server, that server's events, signups, compositions and
+      registered characters are <strong>deleted within 30 days</strong>. Re-inviting the bot inside
+      those 30 days loses nothing.
+    </li>
+    <li>
+      You can delete any character you registered, yourself, with{' '}
+      <code>/character remove</code> in Discord. Its signups, its comp slots and its gear history go with
+      it, immediately and permanently. The same control is coming to the dashboard.
+    </li>
+    <li>Technical logs are kept for a short period and then discarded.</li>
+  </ul>
+
+  <h2>Your rights</h2>
+  <p>
+    The deletion most people want does not need us at all: <code>/character remove</code> in Discord erases
+    a character and everything attached to it on the spot.
+  </p>
+  <p>
+    Beyond that, under the GDPR you can ask for a copy of your data, ask us to correct it, ask us to
+    delete the rest of it, ask us to restrict or stop a particular use, and ask for it in a portable
+    form. Write to <a href="mailto:dpo@phage.sk">dpo@phage.sk</a> and we will answer within one month.
+  </p>
+  <p>
+    If you think we have handled your data badly you can complain to the Slovak data protection
+    authority, the Úrad na ochranu osobných údajov Slovenskej republiky, or to the authority where
+    you live.
+  </p>
+
+  <h2>Children</h2>
+  <p>
+    Raider Mate is used through Discord, and Discord sets a minimum age for its own accounts, which
+    is higher in some countries. If you are not old enough to hold a Discord account, you are not
+    old enough to use Raider Mate.
+  </p>
+
+  <h2>Changes</h2>
+  <p>
+    When this policy changes the date at the top changes with it. If a change means we start
+    collecting something new, we will say so somewhere you will actually see it rather than quietly
+    editing this page.
+  </p>
+</LegalLayout>

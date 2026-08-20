@@ -104,7 +104,9 @@ provides the shell: sidebar layout, auth pages, table components, chart setup.
 ### How the template was actually used
 
 Not cloned. The repo is a fresh Astro 7 project, and the shell was ported by hand: the
-skip link, the landmark structure, the focus-visible outlines, and the sidebar nav. The
+skip link, the landmark structure, and the focus-visible outlines. Its sidebar was not
+kept; navigation is a top bar, because the roster and the comp are wide tables and a
+14rem rail was spending screen on three links. The
 template's own copy of those was written against Astro 1.x, so cloning it would have
 meant an upgrade before the first line of Raider Mate code, and its demo pages, charts
 and fake login would have arrived as things to delete rather than things to use.
@@ -147,8 +149,7 @@ ids on every request, so the staleness window is entirely on this side.
 
 ## 7. Still outstanding
 
-- Roster view and event view. The overview page currently lists upcoming events only to
-  prove the chain from sign-in to an authenticated API call works.
+- Late requests are listed for a raid lead but not yet approved or rejected from here.
 - CSRF beyond form posts. Two things cover what exists today: the session cookie is
   `SameSite=Lax`, and Astro's `security.checkOrigin` (on by default) answers 403 to a
   form `POST` whose `Origin` is not this site. Verified, not assumed. That check keys

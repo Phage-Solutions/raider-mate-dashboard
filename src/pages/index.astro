@@ -1,79 +1,918 @@
 ---
-import DashboardLayout from '../layouts/dashboard-layout.astro';
-import { ServiceError, ServiceUnreachableError } from '../lib/service-error';
-import type { Event } from '../lib/service-types';
+/*
+ * THESIS: the page is the mechanism happening, not a description of it. It refuses the
+ *   dev-tool template (headline over a floating browser screenshot, then three feature
+ *   cards); the product's own board is the page, and the copy beside it is one raid
+ *   week on a stamped rail rather than a stack of feature paragraphs.
+ * OWN-WORLD: the console world from DESIGN.md, unchanged. Cool near-black in four
+ *   tonal steps, hairline borders, no panel shadows, one amber for the action, and
+ *   saturated hue only where it encodes a class or a role. Persuade adds scale and the
+ *   mono face for stamps and labels; it adds no new colour.
+ * STORY: a raid lead reads four moments of a raid week down a rail while the board
+ *   beside them fills, gets overruled, and ends with a bench.
+ * FIRST VIEWPORT: the thesis and the sign-in on the left against the rail; the board
+ *   at full height on the right, already carrying a real comp.
+ * FORM: candidate 5 of the grounded structural list, "the roster fills", seed key
+ *   4b621d0f, assigned index 5. Staging: a sticky board against a stamped narrative,
+ *   each beat owning the slice of choreography it describes.
+ */
+import PublicFooter from '../components/public-footer.astro';
+import PublicHeader from '../components/public-header.astro';
+import BaseLayout from '../layouts/base-layout.astro';
+import { BOT_INVITE, DISCORD_MARK, GITHUB_MARK, ORG_URL } from '../lib/brand';
+import { classColor } from '../lib/wow-class';
 
 export const prerender = false;
 
-const { session, actor, client } = Astro.locals;
-
-if (!session!.selectedGuildId) {
-  return Astro.redirect('/guild');
+// Signed in already, so the dashboard is what they came for.
+if (Astro.locals.session) {
+  return Astro.redirect('/dashboard');
 }
 
-// The proof that the whole chain works: sealed cookie to actor headers to a service
-// response with its links intact. The roster and event views replace this next phase.
-let events: Event[] = [];
-let failure: string | null = null;
+// There is no login page any more, so the sign-in round trip reports back here.
+const SIGN_IN_ERRORS: Record<string, string> = {
+  denied: 'Discord sign-in was cancelled.',
+  state: 'That sign-in link expired. Try again.',
+  discord: 'Discord did not answer. Try again in a minute.',
+};
+const signInError = SIGN_IN_ERRORS[Astro.url.searchParams.get('error') ?? ''];
 
-try {
-  events = await client.get<Event[]>(actor, `/api/guilds/${session!.selectedGuildId}/events`);
-} catch (error) {
-  if (error instanceof ServiceUnreachableError) {
-    failure = 'Raider Mate is not answering right now.';
-  } else if (error instanceof ServiceError) {
-    failure = error.isSafe() ? error.serviceMessage : 'Raider Mate had a problem with that.';
-  } else {
-    throw error;
-  }
+/**
+ * Demonstration data. Every name here is invented: this repo has no real guild to show,
+ * and dressing up a made-up one as a real screenshot is a lie whatever the pixels say.
+ */
+interface Slot {
+  name: string;
+  class: string;
+  /** Who ends up in this slot once the raid lead has the board. */
+  movedTo?: string;
+  movedClass?: string;
 }
+
+const COLUMNS: { role: string; hue: string; slots: Slot[] }[] = [
+  {
+    role: 'Tanks',
+    hue: 'var(--role-tank)',
+    slots: [
+      { name: 'Grimhowl', class: 'Warrior' },
+      { name: 'Bramblehoof', class: 'Druid' },
+    ],
+  },
+  {
+    role: 'Healers',
+    hue: 'var(--role-healer)',
+    slots: [
+      { name: 'Sunwake', class: 'Paladin' },
+      { name: 'Mirefall', class: 'Shaman' },
+      { name: 'Quillwing', class: 'Priest' },
+    ],
+  },
+  {
+    role: 'Melee',
+    hue: 'var(--role-mdps)',
+    slots: [
+      { name: 'Ashvow', class: 'Death Knight' },
+      { name: 'Ninecoils', class: 'Rogue' },
+      // The two the raid lead swaps once the comp is theirs.
+      { name: 'Duskblade', class: 'Demon Hunter', movedTo: 'Hollowmere', movedClass: 'Monk' },
+    ],
+  },
+  {
+    role: 'Ranged',
+    hue: 'var(--role-rdps)',
+    slots: [
+      { name: 'Emberlark', class: 'Mage' },
+      { name: 'Thornwhistle', class: 'Hunter' },
+      { name: 'Vexhollow', class: 'Warlock' },
+      { name: 'Stormrede', class: 'Evoker', movedTo: 'Ironsong', movedClass: 'Paladin' },
+    ],
+  },
+];
+
+const BENCH: Slot[] = [
+  { name: 'Duskblade', class: 'Demon Hunter' },
+  { name: 'Stormrede', class: 'Evoker' },
+];
+
+/**
+ * Each slot lands at its own point in the signup beat's own scroll, so the board fills
+ * rather than appearing. Percentages are of that one beat's cover range, which is why
+ * they can be reasoned about at all: a single timeline over the whole page would need
+ * numbers nobody can check.
+ */
+let nth = 0;
+const board = COLUMNS.map((column) => ({
+  ...column,
+  slots: column.slots.map((slot) => {
+    const from = 22 + nth++ * 3.5;
+    return { ...slot, arrival: `--from: ${from}%; --to: ${from + 9}%` };
+  }),
+}));
+
+const mark = (className: string) => classColor(className) ?? 'var(--border-strong)';
 ---
 
-<DashboardLayout title="Overview">
-  {failure && <p class="notice">{failure}</p>}
+<BaseLayout
+  title="Raid signups and comps for WoW guilds"
+  description="A Discord bot that takes your raid signups, and a dashboard that turns them into a composition you can overrule. Free and self-hostable, AGPLv3."
+  indexable
+>
+  <PublicHeader />
 
-  {
-    !failure && events.length === 0 && (
-      <p class="muted">
-        No upcoming events in {session!.selectedGuildName}. If that is a surprise, the guild may not
-        be running Raider Mate yet.
-      </p>
-    )
-  }
+  <main id="main">
+    <div class="stage">
+      <div class="story">
+        <section class="hero">
+          <h1>A bot for the signups.<br /> A board for the comp.</h1>
+          <p class="lede">
+            The Raider Mate bot posts your raid in Discord and takes the signups there. The
+            dashboard reads them against your roster's synced gear and Mythic+ scores, builds the
+            composition, and lets you overrule any slot of it.
+          </p>
+          <p class="lede lede--after">
+            Afterwards the raid moves to your past events, where the WarcraftLogs report goes.
+          </p>
+          {signInError && <p class="notice">{signInError}</p>}
+          <div class="actions">
+            {
+              /* The install leads because nothing in the dashboard exists until the bot
+                is posting events. Signing in is for the guilds already running it. */
+            }
+            <a class="button button--lg" href={BOT_INVITE} rel="noreferrer">
+              <svg class="glyph" viewBox="0 0 24 18" aria-hidden="true" focusable="false">
+                <path fill="currentColor" d={DISCORD_MARK}></path>
+              </svg>
+              Add the bot to your server
+            </a>
+            <a class="button button--quiet button--lg" href="/auth/discord">Sign in with Discord</a>
+          </div>
+          <p class="fine">
+            Free and self-hostable. AGPLv3.{' '}
+            <a href={ORG_URL} rel="noreferrer">Read the source</a>
+          </p>
+        </section>
 
-  {
-    events.length > 0 && (
-      <ul>
-        {events.map((event) => (
-          <li class="card">
-            <h2>{event.title}</h2>
-            <p class="muted">
-              {event.type}
-              {event.difficulty ? ` ${event.difficulty}` : ''}, starts{' '}
-              <time datetime={event.starts_at}>{event.starts_at}</time>
+        {
+          /* One raid week, stamped. The beats are a real sequence, which is the only
+            thing that earns a marker down the side of them. */
+        }
+        <div class="track">
+          <section class="beat beat--signups">
+            <p class="stamp">Monday 20:00 &middot; the bot posts the event</p>
+            <h2>Raiders sign up once.</h2>
+            <p>
+              The Raider Mate bot posts the raid in your events channel and takes the signups there.
+              Nobody has to leave Discord to say they are coming.
             </p>
-            <p class="muted">What you can do here: {Object.keys(event._links).sort().join(', ')}</p>
-          </li>
-        ))}
-      </ul>
-    )
-  }
-</DashboardLayout>
+            <p>
+              Roles live on the character, not on the signup. A raider lists what they can play
+              once, and never picks a role for a comp that does not exist yet.
+            </p>
+          </section>
+
+          <section class="beat beat--assign">
+            <p class="stamp">Thursday 19:30 &middot; signups close</p>
+            <h2>The assigner builds the board.</h2>
+            <p>
+              It reads the current signups against what the roster sync knows about each character,
+              and fills every slot. Whatever it noticed on the way shows up as an advisory, and an
+              advisory never blocks anything.
+            </p>
+          </section>
+
+          <section class="beat beat--manual">
+            <p class="stamp">Thursday 19:52 &middot; you look at it</p>
+            <h2>Then you take it over.</h2>
+            <p>
+              Flip the comp to manual and the assigner stops touching it. Move anyone anywhere. A
+              healer in a tank slot, eleven names for a twenty-man roster, a raider who never signed
+              up: Raider Mate writes down exactly what you asked for and does not argue with you.
+            </p>
+          </section>
+
+          <section class="beat beat--after">
+            <p class="stamp">Thursday 23:40 &middot; the logs go up</p>
+            <h2>After the pull.</h2>
+            <p>
+              The raid moves to your past events, where you paste the WarcraftLogs report.
+              Attendance and gear gaps build up from there, night after night.
+            </p>
+            <p class="fine">Analysis is part of Premium.</p>
+          </section>
+        </div>
+      </div>
+
+      <div class="board-slot">
+        <div class="rm-board">
+          <div class="rm-board__head">
+            <span class="rm-board__title">Thursday Prog</span>
+            <span class="badge">Heroic</span>
+            <span class="modes" aria-hidden="true">
+              <span class="mode mode--auto">Auto</span>
+              <span class="mode mode--manual">Manual</span>
+            </span>
+          </div>
+
+          <div class="rm-board__roles">
+            {
+              board.map((column) => (
+                <div class="role" style={`--hue: ${column.hue}`}>
+                  <h3>
+                    <span class="role__dot" aria-hidden="true" />
+                    {column.role}
+                  </h3>
+                  <ul>
+                    {column.slots.map((slot) => (
+                      <li class="slot" style={slot.arrival}>
+                        <span class="slot__ghost" aria-hidden="true" />
+                        {/* The arrival animation lives on this wrapper and the hand-over
+                            on its children, so the two never fight over one opacity. */}
+                        <span class="slot__swap">
+                          <span class="slot__name slot__name--before">
+                            <span class="slot__mark" style={`background: ${mark(slot.class)}`} />
+                            {slot.name}
+                          </span>
+                          {slot.movedTo && (
+                            <span class="slot__name slot__name--after">
+                              <span
+                                class="slot__mark"
+                                style={`background: ${mark(slot.movedClass!)}`}
+                              />
+                              {slot.movedTo}
+                            </span>
+                          )}
+                        </span>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              ))
+            }
+          </div>
+
+          <p class="advisory">
+            <span class="advisory__dot" aria-hidden="true"></span>
+            HEALER: 3, suggestion for 20 raiders is 4
+          </p>
+
+          <div class="rm-board__bench">
+            <h3>Bench</h3>
+            <ul>
+              {
+                BENCH.map((slot) => (
+                  <li class="slot slot--bench">
+                    <span class="slot__swap">
+                      <span class="slot__name">
+                        <span class="slot__mark" style={`background: ${mark(slot.class)}`} />
+                        {slot.name}
+                      </span>
+                    </span>
+                  </li>
+                ))
+              }
+            </ul>
+          </div>
+        </div>
+
+        <p class="rm-board__note">Example data. No real guild or raider is named on this page.</p>
+      </div>
+    </div>
+
+    <section class="pricing">
+      <h2>Free to run yourself.</h2>
+      <div class="plans">
+        <div class="plan">
+          <h3>Self-hosted</h3>
+          <p class="plan__price">Free</p>
+          <p>
+            AGPLv3. Your box, your database. Everything is in the repository and nothing is held
+            back from it.
+          </p>
+          <a class="button button--quiet" href={ORG_URL} rel="noreferrer">
+            <svg class="glyph" viewBox="0 0 16 16" aria-hidden="true" focusable="false">
+              <path fill="currentColor" d={GITHUB_MARK}></path>
+            </svg>
+            Read the source
+          </a>
+        </div>
+        <div class="plan plan--hosted">
+          <h3>Hosted Premium</h3>
+          <p class="plan__price">
+            €2.99<span>a month</span>
+          </p>
+          <p class="plan__alt">or €29.99 a year. VAT included, billed through Stripe.</p>
+          <p>We run it, keep it upgraded, and the analysis views come with it.</p>
+          <a class="button button--quiet" href="/auth/discord">Sign in with Discord</a>
+        </div>
+      </div>
+    </section>
+
+    <section class="close">
+      <h2>Your next raid is on Thursday.</h2>
+      <div class="actions">
+        <a class="button button--lg" href={BOT_INVITE} rel="noreferrer">
+          <svg class="glyph" viewBox="0 0 24 18" aria-hidden="true" focusable="false">
+            <path fill="currentColor" d={DISCORD_MARK}></path>
+          </svg>
+          Add the bot to your server
+        </a>
+        <a class="button button--quiet button--lg" href="/auth/discord">Sign in with Discord</a>
+      </div>
+    </section>
+  </main>
+
+  <PublicFooter />
+</BaseLayout>
 
 <style>
-  ul {
-    list-style: none;
+  main {
+    width: min(var(--page-width), 100%);
+    margin: 0 auto;
+    padding: 0 1.25rem;
+  }
+
+  /* --------------------------------------------------------------------- the story */
+
+  .stage {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    gap: 2rem;
+    /* Each beat owns the slice of the board's assembly that it describes. Named here so
+       the board, which is not a descendant of any beat, can still reference them. */
+    timeline-scope: --t-signups, --t-assign, --t-manual, --t-after;
+  }
+
+  .hero {
+    display: grid;
+    gap: 1.125rem;
+    justify-items: start;
+    align-content: center;
+    min-height: 68vh;
+    max-width: 34rem;
+    padding: 1rem 0 3rem;
+  }
+
+  h1 {
+    font-size: clamp(2.25rem, 5.6vw, 3.5rem);
+    font-weight: 680;
+    line-height: 1.04;
+    letter-spacing: -0.034em;
+  }
+
+  .lede {
+    max-width: 33rem;
+    color: var(--text-secondary);
+    font-size: var(--fs-lg);
+    line-height: 1.6;
+    text-wrap: pretty;
+  }
+
+  .notice {
+    width: 100%;
+    margin: 0;
+  }
+
+  .lede--after {
+    color: var(--text-tertiary);
+    font-size: var(--fs-md);
+  }
+
+  .actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.75rem;
+    margin-top: 0.25rem;
+  }
+
+  .fine {
+    color: var(--text-tertiary);
+    font-size: var(--fs-sm);
+  }
+
+  /* The rail. It runs beside a real sequence, which is what earns it: these are four
+     moments of one raid week in the order they happen. */
+  .track {
+    position: relative;
+    padding-left: 2.25rem;
+  }
+
+  .track::before {
+    content: '';
+    position: absolute;
+    top: 0.6rem;
+    bottom: 6rem;
+    left: 3px;
+    width: 1px;
+    background: linear-gradient(
+      to bottom,
+      transparent,
+      var(--border) 8%,
+      var(--border) 82%,
+      transparent
+    );
+  }
+
+  .beat {
+    display: grid;
+    gap: 0.875rem;
+    justify-items: start;
+    align-content: center;
+    min-height: 72vh;
+    max-width: 34rem;
+  }
+
+  .stamp {
+    position: relative;
+    color: var(--text-tertiary);
+    font-family: var(--mono);
+    font-size: var(--fs-xs);
+    letter-spacing: 0.01em;
+  }
+
+  .stamp::before {
+    content: '';
+    position: absolute;
+    top: 0.35em;
+    left: -2.25rem;
+    width: 7px;
+    height: 7px;
+    border-radius: var(--radius-full);
+    background: var(--border-strong);
+    box-shadow: 0 0 0 4px var(--ground);
+  }
+
+  .beat h2 {
+    font-size: clamp(1.5rem, 3.2vw, 2rem);
+    font-weight: 640;
+    letter-spacing: -0.026em;
+  }
+
+  .beat p:not(.stamp):not(.fine) {
+    color: var(--text-secondary);
+    font-size: var(--fs-lg);
+    line-height: 1.6;
+    text-wrap: pretty;
+  }
+
+  /* --------------------------------------------------------------------- the board */
+
+  .board-slot {
+    display: grid;
+    gap: 0.625rem;
+    align-content: start;
+  }
+
+  /* Not .panel: that class already belongs to the dashboard's own panel component in
+     global.css, and borrowing the name wrapped every paragraph on this page in app
+     chrome. */
+  .rm-board {
+    border: 1px solid var(--border);
+    border-radius: var(--radius-xl);
+    background: var(--surface);
+  }
+
+  .rm-board__head {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.5rem 0.75rem;
+    align-items: center;
+    padding: 0.875rem 1.25rem;
+    border-bottom: 1px solid var(--border-subtle);
+    background: color-mix(in srgb, var(--raised) 55%, transparent);
+  }
+
+  .rm-board__title {
+    font-size: var(--fs-lg);
+    font-weight: 600;
+    letter-spacing: -0.014em;
+  }
+
+  /* Both modes side by side rather than stacked. Stacked, they overlapped into an
+     unreadable smear whenever the choreography did not resolve. */
+  .modes {
+    display: flex;
+    gap: 2px;
+    margin-left: auto;
+    padding: 2px;
+    border: 1px solid var(--border);
+    border-radius: var(--radius-full);
+    background: var(--ground);
+  }
+
+  .mode {
+    padding: 0.05rem 0.5rem;
+    border-radius: var(--radius-full);
+    color: var(--text-tertiary);
+    font-size: var(--fs-xs);
+    font-weight: 560;
+    white-space: nowrap;
+  }
+
+  /* The finished board is manual, so manual is the mode lit at rest. */
+  .mode--manual {
+    background: color-mix(in srgb, var(--accent) 15%, transparent);
+    color: var(--accent);
+  }
+
+  .rm-board__roles {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 1.25rem;
+    padding: 1.25rem;
+  }
+
+  .role h3,
+  .rm-board__bench h3 {
+    display: flex;
+    gap: 0.5rem;
+    align-items: center;
+    margin: 0 0 0.5rem;
+    color: var(--text-tertiary);
+    font-size: var(--fs-xs);
+    font-weight: 560;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+  }
+
+  .role__dot {
+    width: 6px;
+    height: 6px;
+    border-radius: var(--radius-full);
+    background: var(--hue);
+  }
+
+  .role ul,
+  .rm-board__bench ul {
+    display: grid;
+    gap: 0.3rem;
     margin: 0;
     padding: 0;
+    list-style: none;
+  }
+
+  .slot {
+    position: relative;
     display: grid;
-    gap: 0.75rem;
+    min-height: 30px;
+    padding: 0.3rem 0.5rem;
+    border-radius: var(--radius-sm);
+    background: var(--raised);
+    font-size: var(--fs-sm);
   }
 
-  h2 {
-    font-size: 1.1rem;
+  /* The dashed ghost of an unfilled slot. Hidden at rest so a browser with no
+     scroll-driven animation shows the finished board rather than an empty one. */
+  .slot__ghost {
+    position: absolute;
+    inset: 0;
+    border: 1px dashed var(--border);
+    border-radius: var(--radius-sm);
+    background: var(--ground);
+    opacity: 0;
   }
 
-  p {
-    margin: 0.25rem 0 0;
+  .slot__swap {
+    display: grid;
+    min-width: 0;
+  }
+
+  .slot__name {
+    grid-area: 1 / 1;
+    display: flex;
+    gap: 0.5rem;
+    align-items: center;
+    min-width: 0;
+  }
+
+  /* Two names share one cell only where the raid lead moves somebody. The one who was
+     there loses the cell, so it is the one hidden at rest. */
+  .slot__name--before {
+    opacity: 0;
+  }
+
+  .slot:not(:has(.slot__name--after)) .slot__name--before {
+    opacity: 1;
+  }
+
+  .slot__mark {
+    width: 3px;
+    height: 0.95em;
+    flex: none;
+    border-radius: var(--radius-full);
+  }
+
+  .advisory {
+    display: flex;
+    gap: 0.5rem;
+    align-items: baseline;
+    margin: 0 1.25rem;
+    padding: 0.5rem 0.75rem;
+    border: 1px solid var(--border-subtle);
+    border-radius: var(--radius-lg);
+    background: var(--raised);
+    color: var(--text-secondary);
+    font-size: var(--fs-xs);
+  }
+
+  .advisory__dot {
+    width: 6px;
+    height: 6px;
+    flex: none;
+    border-radius: var(--radius-full);
+    background: var(--role-healer);
+  }
+
+  .rm-board__bench {
+    padding: 1.25rem;
+  }
+
+  .rm-board__bench ul {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .rm-board__note {
+    color: var(--text-tertiary);
+    font-family: var(--mono);
+    font-size: var(--fs-xs);
+  }
+
+  /* --------------------------------------------------------------------- the pitch */
+
+  .pricing,
+  .close {
+    padding: 5rem 0;
+    border-top: 1px solid var(--border-subtle);
+  }
+
+  .pricing h2,
+  .close h2 {
+    font-size: clamp(1.5rem, 3.2vw, 2rem);
+    font-weight: 640;
+    letter-spacing: -0.026em;
+  }
+
+  .plans {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(17rem, 1fr));
+    gap: 1rem;
+    max-width: 46rem;
+    margin-top: 1.5rem;
+  }
+
+  /* Flex rather than grid so the action can take the leftover height with an auto
+     margin. The cards stretch to match each other, and without this each button sits
+     wherever its own card's copy happens to end. */
+  .plan {
+    display: flex;
+    flex-direction: column;
+    align-items: start;
+    gap: 0.5rem;
+    padding: 1.5rem;
+    border: 1px solid var(--border);
+    border-radius: var(--radius-xl);
+    background: var(--surface);
+  }
+
+  .plan--hosted {
+    border-color: color-mix(in srgb, var(--accent) 35%, var(--border));
+  }
+
+  .plan h3 {
+    font-size: var(--fs-md);
+    font-weight: 600;
+  }
+
+  .plan__price {
+    display: flex;
+    gap: 0.375rem;
+    align-items: baseline;
+    font-size: 2rem;
+    font-weight: 660;
+    font-variant-numeric: tabular-nums;
+    letter-spacing: -0.028em;
+  }
+
+  .plan__price span {
+    color: var(--text-tertiary);
+    font-size: var(--fs-sm);
+    font-weight: 400;
+    letter-spacing: normal;
+  }
+
+  .plan__alt,
+  .plan p {
+    color: var(--text-secondary);
+    font-size: var(--fs-sm);
+  }
+
+  .plan .button {
+    margin-top: auto;
+  }
+
+  .close {
+    display: grid;
+    gap: 1.25rem;
+    justify-items: start;
+  }
+
+  /* Height-locked with an automatic width, because the two marks have different
+     aspect ratios and a square box squashes Discord's. */
+  .glyph {
+    width: auto;
+    height: 1em;
+    flex: none;
+  }
+
+  .button--lg {
+    min-height: 40px;
+    padding: 0.5rem 1.125rem;
+    font-size: var(--fs-md);
+  }
+
+  /* ------------------------------------------------------------------ wide screens */
+
+  @media (min-width: 60rem) {
+    main {
+      padding-inline: 2rem;
+    }
+
+    .stage {
+      grid-template-columns: minmax(0, 0.95fr) minmax(0, 1.05fr);
+      gap: 4rem;
+      align-items: start;
+    }
+
+    /* The board holds still while the week scrolls past it, which is the only way one
+       board can be both the empty one and the finished one. */
+    .board-slot {
+      position: sticky;
+      top: 2rem;
+      grid-column: 2;
+      grid-row: 1;
+    }
+
+    .story {
+      grid-column: 1;
+      grid-row: 1;
+    }
+  }
+
+  /* ------------------------------------------------------------------ the assembly */
+
+  /* Everything above renders the finished board. This block, and only this block, winds
+     it back and plays it forward. Each beat drives the part of the board it is talking
+     about, so the ranges are percentages of one short element rather than guesses about
+     a page-long timeline. Without support the finished board stands, which is the
+     honest fallback: the argument does not depend on the motion. */
+  .beat--signups {
+    view-timeline-name: --t-signups;
+  }
+
+  .beat--assign {
+    view-timeline-name: --t-assign;
+  }
+
+  .beat--manual {
+    view-timeline-name: --t-manual;
+  }
+
+  .beat--after {
+    view-timeline-name: --t-after;
+  }
+
+  @supports (animation-timeline: view()) and (animation-range: cover 10% cover 20%) {
+    @media (min-width: 60rem) {
+      .slot__ghost {
+        animation: ghost-out linear both;
+        animation-timeline: --t-signups;
+        animation-range: cover var(--from) cover var(--to);
+      }
+
+      .slot__swap {
+        animation: name-in linear both;
+        animation-timeline: --t-signups;
+        animation-range: cover var(--from) cover var(--to);
+      }
+
+      .advisory {
+        animation: fade-in linear both;
+        animation-timeline: --t-assign;
+        animation-range: cover 34% cover 58%;
+      }
+
+      /* The raid lead takes the board. The mode swaps and the two slots they moved
+         change hands over one range, so it reads as a single decision. */
+      .mode--auto {
+        animation: mode-off linear both;
+        animation-timeline: --t-manual;
+        animation-range: cover 34% cover 56%;
+      }
+
+      .mode--manual {
+        animation: mode-on linear both;
+        animation-timeline: --t-manual;
+        animation-range: cover 34% cover 56%;
+      }
+
+      .slot:has(.slot__name--after) .slot__name--before {
+        animation: fade-out linear both;
+        animation-timeline: --t-manual;
+        animation-range: cover 36% cover 58%;
+      }
+
+      .slot__name--after {
+        animation: fade-in linear both;
+        animation-timeline: --t-manual;
+        animation-range: cover 36% cover 58%;
+      }
+
+      .rm-board__bench {
+        animation: fade-in linear both;
+        animation-timeline: --t-after;
+        animation-range: cover 30% cover 54%;
+      }
+    }
+  }
+
+  @keyframes ghost-out {
+    from {
+      opacity: 1;
+    }
+
+    to {
+      opacity: 0;
+    }
+  }
+
+  @keyframes name-in {
+    from {
+      opacity: 0;
+      transform: translateY(4px);
+    }
+
+    to {
+      opacity: 1;
+      transform: none;
+    }
+  }
+
+  @keyframes fade-in {
+    from {
+      opacity: 0;
+    }
+
+    to {
+      opacity: 1;
+    }
+  }
+
+  @keyframes fade-out {
+    from {
+      opacity: 1;
+    }
+
+    to {
+      opacity: 0;
+    }
+  }
+
+  @keyframes mode-on {
+    from {
+      background: transparent;
+      color: var(--text-tertiary);
+    }
+
+    to {
+      background: color-mix(in srgb, var(--accent) 15%, transparent);
+      color: var(--accent);
+    }
+  }
+
+  @keyframes mode-off {
+    from {
+      background: color-mix(in srgb, var(--accent) 15%, transparent);
+      color: var(--accent);
+    }
+
+    to {
+      background: transparent;
+      color: var(--text-tertiary);
+    }
+  }
+
+  /* The board is the argument, so it is never left half built. Dropping the timeline
+     puts every element back on the resting rules above, which are the finished state. */
+  @media (prefers-reduced-motion: reduce) {
+    .slot__ghost,
+    .slot__swap,
+    .slot__name--before,
+    .slot__name--after,
+    .advisory,
+    .mode--auto,
+    .mode--manual,
+    .rm-board__bench {
+      animation-timeline: none;
+      animation-name: none;
+    }
   }
 </style>

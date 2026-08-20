@@ -19,13 +19,13 @@ export const GET: APIRoute = async ({ url, cookies, redirect }) => {
   // Discord sends the raider back here with an error when they decline the consent
   // screen. That is a choice, not a failure.
   if (url.searchParams.has('error')) {
-    return redirect('/login?error=denied');
+    return redirect('/?error=denied');
   }
 
   const code = url.searchParams.get('code');
   const state = url.searchParams.get('state');
   if (!code || !state || !expectedState || state !== expectedState) {
-    return redirect('/login?error=state');
+    return redirect('/?error=state');
   }
 
   try {
@@ -47,8 +47,8 @@ export const GET: APIRoute = async ({ url, cookies, redirect }) => {
       sessionCookieOptions(cookiesSecure),
     );
   } catch {
-    return redirect('/login?error=discord');
+    return redirect('/?error=discord');
   }
 
-  return redirect('/');
+  return redirect('/dashboard');
 };

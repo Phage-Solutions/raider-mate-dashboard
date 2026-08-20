@@ -1,0 +1,197 @@
+---
+import CharacterCard from '../components/character-card.astro';
+import DashboardLayout from '../layouts/dashboard-layout.astro';
+import { getLink } from '../lib/links';
+import { noticeFor } from '../lib/service-notice';
+import type { Character, Role, RoleChoice } from '../lib/service-types';
+
+export const prerender = false;
+
+const { session, actor, client } = Astro.locals;
+
+if (!session!.selectedGuildId) {
+  return Astro.redirect('/guild');
+}
+
+const NOTICES: Record<string, string> = {
+  registered: 'Character added. Its gear lands on the next sync.',
+  saved: 'Saved.',
+  removed: 'Character removed, along with its signups.',
+  duplicate: 'You have already registered that character.',
+  invalid: 'Raider Mate would not take that. Check the name, realm and region.',
+  denied: 'That is not yours to change.',
+  gone: 'That character is no longer here.',
+  failed: 'Raider Mate had a problem with that.',
+  unreachable: 'Raider Mate is not answering right now.',
+};
+const noticeCode = Astro.url.searchParams.get('notice') ?? '';
+const notice = NOTICES[noticeCode];
+const noticeIsGood = ['registered', 'saved', 'removed'].includes(noticeCode);
+
+let mine: Character[] = [];
+let roleMenus = new Map<string, Set<Role>>();
+let failure: string | null = null;
+
+try {
+  mine = await client.get<Character[]>(actor, `/api/users/${session!.discordId}/characters`);
+
+  // The role menu is its own resource, so it is followed rather than assumed to be on
+  // the character. A raider has a handful of characters, so a request each is fine.
+  const menus = await Promise.all(
+    mine.map(async (character) => {
+      const link = getLink(character, 'role-menu');
+      if (!link) {
+        return [character.id, new Set<Role>()] as const;
+      }
+      const { body } = await client.follow<RoleChoice[]>(actor, link);
+      return [character.id, new Set(body.map((choice) => choice.role))] as const;
+    }),
+  );
+  roleMenus = new Map(menus);
+} catch (error) {
+  failure = noticeFor(error);
+}
+
+// The main leads, and the alts follow under their own heading. A raid lead plans around
+// the main, and a raider with six alts should not have to hunt for it. Order within the
+// alts is left as the service sent it.
+const main = mine.find((character) => character.is_main);
+const alts = mine.filter((character) => !character.is_main);
+const hasMain = main !== undefined;
+
+const rolesFor = (id: string) => roleMenus.get(id) ?? new Set<Role>();
+---
+
+<DashboardLayout title="My characters">
+  <p slot="head" class="muted">
+    The characters you have registered in {session!.selectedGuildName}, and what each of them can
+    play.
+  </p>
+
+  {notice && <p class:list={['notice', noticeIsGood && 'notice--good']}>{notice}</p>}
+  {failure && <p class="notice">{failure}</p>}
+
+  {
+    !failure && mine.length === 0 && (
+      <div class="panel">
+        <div class="empty">
+          <h3>No characters yet</h3>
+          <p>
+            Register one and Raider Mate can put it in a comp. Gear and Mythic+ score arrive on the
+            next sync from Raider.IO.
+          </p>
+        </div>
+      </div>
+    )
+  }
+
+  {main && <CharacterCard character={main} roles={rolesFor(main.id)} />}
+
+  {
+    alts.length > 0 && (
+      <section class="section">
+        <h2 class="alts">Alts</h2>
+        {alts.map((character) => (
+          <CharacterCard character={character} roles={rolesFor(character.id)} />
+        ))}
+      </section>
+    )
+  }
+
+  {
+    !hasMain && mine.length > 0 && (
+      <p class="muted hint-main">
+        None of these is your main. Pick one so a raid lead knows which character you actually raid
+        on.
+      </p>
+    )
+  }
+
+  <section class="section">
+    <h2>Add a character</h2>
+    <form class="panel add" method="post" action="/characters/register" data-astro-reload>
+      <div class="add__fields">
+        <div class="field">
+          <label for="name">Name</label>
+          <input id="name" name="name" type="text" required autocomplete="off" />
+        </div>
+        <div class="field">
+          <label for="realm">Realm</label>
+          <input id="realm" name="realm" type="text" required autocomplete="off" />
+        </div>
+        <div class="field field--narrow">
+          <label for="region">Region</label>
+          {
+            /* A list rather than a fixed set: the service only lowercases what it is
+              given, so constraining it here would invent a rule it does not have. */
+          }
+          <input id="region" name="region" type="text" list="regions" required value="eu" />
+          <datalist id="regions">
+            <option value="eu"></option>
+            <option value="us"></option>
+            <option value="kr"></option>
+            <option value="tw"></option>
+            <option value="cn"></option>
+          </datalist>
+        </div>
+      </div>
+      {
+        /* The service grants the flag only while there is no main, so sending it on a
+          first registration is safe and sending it later simply does nothing. */
+      }
+      <input type="hidden" name="is_main" value={String(!hasMain)} />
+      <button class="button" type="submit">Add character</button>
+    </form>
+  </section>
+</DashboardLayout>
+
+<style>
+  .notice--good {
+    border-color: color-mix(in srgb, var(--success) 34%, transparent);
+    background: color-mix(in srgb, var(--success) 11%, transparent);
+  }
+
+  .notice--good::before {
+    background: var(--success);
+  }
+
+  .alts {
+    margin-bottom: 0.875rem;
+    color: var(--text-tertiary);
+    font-size: var(--fs-xs);
+    font-weight: 560;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+  }
+
+  .hint-main {
+    margin-top: 1rem;
+    font-size: var(--fs-sm);
+  }
+
+  .add {
+    display: grid;
+    justify-items: start;
+    gap: 1rem;
+    margin-top: 1rem;
+    padding: 1.25rem;
+  }
+
+  .add__fields {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(11rem, 1fr));
+    gap: 1rem;
+    width: 100%;
+    max-width: 40rem;
+  }
+
+  .field--narrow {
+    max-width: 9rem;
+  }
+
+  /* The register form's fields sit in a row rather than stacked, so they lose the
+     stacked field's bottom margin. */
+  .add .field {
+    margin-bottom: 0;
+  }
+</style>

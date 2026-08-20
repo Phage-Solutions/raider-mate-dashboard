@@ -1,0 +1,46 @@
+---
+import type { Event, RaidDifficulty } from '../lib/service-types';
+
+interface Props {
+  event: Event;
+}
+
+const { event } = Astro.props;
+
+const DIFFICULTY_LABELS: Record<RaidDifficulty, string> = {
+  NORMAL: 'Normal',
+  HEROIC: 'Heroic',
+  MYTHIC: 'Mythic',
+};
+
+// Difficulty is what a raid lead sorts by, so difficulty is what gets the colour. The
+// kind of event stays neutral: Normal has no hue because it is the baseline, not a
+// warning.
+const DIFFICULTY_HUES: Record<RaidDifficulty, string | null> = {
+  NORMAL: null,
+  HEROIC: 'var(--info)',
+  MYTHIC: 'var(--role-rdps)',
+};
+
+const hue = event.difficulty ? DIFFICULTY_HUES[event.difficulty] : null;
+---
+
+<span class="chips">
+  <span class="badge">{event.type === 'MYTHIC_PLUS' ? 'Mythic+' : 'Raid'}</span>
+  {
+    event.difficulty && (
+      <span class:list={['badge', hue && 'badge--hue']} style={hue ? `--hue: ${hue}` : undefined}>
+        {DIFFICULTY_LABELS[event.difficulty]}
+      </span>
+    )
+  }
+</span>
+
+<style>
+  .chips {
+    display: inline-flex;
+    flex-wrap: wrap;
+    gap: 0.375rem;
+    align-items: center;
+  }
+</style>

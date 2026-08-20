@@ -1,5 +1,6 @@
 import type { APIRoute } from 'astro';
 
+import { fetchGuildAbilities } from '../../lib/capabilities';
 import { cookiesSecure, sessionSecret } from '../../lib/config';
 import { fetchGuildRoleIds, fetchGuilds } from '../../lib/discord-oauth';
 import { sealSession, SESSION_COOKIE, sessionCookieOptions } from '../../lib/session';
@@ -9,7 +10,7 @@ export const prerender = false;
 export const POST: APIRoute = async ({ request, cookies, locals, redirect }) => {
   const session = locals.session;
   if (!session) {
-    return redirect('/login');
+    return redirect('/');
   }
 
   const form = await request.formData();
@@ -30,6 +31,14 @@ export const POST: APIRoute = async ({ request, cookies, locals, redirect }) => 
 
   const roleIds = await fetchGuildRoleIds(session.accessToken, guild.id);
 
+  // Asked once the role ids are known, because raid-lead capability is resolved from
+  // them on the service side.
+  const abilities = await fetchGuildAbilities(
+    locals.client,
+    { discordId: session.discordId, guildId: guild.id, roleIds, guildAdmin: guild.admin },
+    guild.id,
+  );
+
   cookies.set(
     SESSION_COOKIE,
     await sealSession(
@@ -39,6 +48,7 @@ export const POST: APIRoute = async ({ request, cookies, locals, redirect }) => 
         selectedGuildName: guild.name,
         roleIds,
         guildAdmin: guild.admin,
+        abilities,
         actorFetchedAt: Date.now(),
       },
       sessionSecret,
@@ -46,5 +56,5 @@ export const POST: APIRoute = async ({ request, cookies, locals, redirect }) => 
     sessionCookieOptions(cookiesSecure),
   );
 
-  return redirect('/');
+  return redirect('/dashboard');
 };

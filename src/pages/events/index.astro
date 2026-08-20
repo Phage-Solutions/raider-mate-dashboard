@@ -1,0 +1,394 @@
+---
+import EventChips from '../../components/event-chips.astro';
+import BotInstall from '../../components/bot-install.astro';
+import DashboardLayout from '../../layouts/dashboard-layout.astro';
+import { fetchGuildTimezone, formatEventTime, formatSignupWindow } from '../../lib/guild-time';
+import { getLink } from '../../lib/links';
+import { noticeFor } from '../../lib/service-notice';
+import type { Event } from '../../lib/service-types';
+
+export const prerender = false;
+
+const { session, actor, client } = Astro.locals;
+
+if (!session!.selectedGuildId) {
+  return Astro.redirect('/guild');
+}
+
+const guildId = session!.selectedGuildId;
+
+const timezone = await fetchGuildTimezone(client, actor, guildId);
+
+// Two lists, one endpoint. The service splits them on starts_at and orders each the way
+// it wants to be read: upcoming soonest first, past most recent first.
+const past = Astro.url.searchParams.get('scope') === 'past';
+
+let events: Event[] = [];
+let failure: string | null = null;
+
+try {
+  events = await client.get<Event[]>(
+    actor,
+    `/api/guilds/${guildId}/events${past ? '?scope=past' : ''}`,
+  );
+} catch (error) {
+  failure = noticeFor(error);
+}
+
+// Roughly a screen's worth on the laptop half of a raid lead's desk.
+const PER_PAGE = 10;
+const pageCount = Math.max(1, Math.ceil(events.length / PER_PAGE));
+const requested = Number.parseInt(Astro.url.searchParams.get('page') ?? '1', 10);
+const page = Number.isNaN(requested) ? 1 : Math.min(Math.max(requested, 1), pageCount);
+const start = (page - 1) * PER_PAGE;
+const shown = events.slice(start, start + PER_PAGE);
+
+/** First, last, and the current page's neighbours. Gaps render as an ellipsis. */
+function pageNumbers(): (number | null)[] {
+  if (pageCount <= 7) {
+    return Array.from({ length: pageCount }, (_, index) => index + 1);
+  }
+  const around = [page - 1, page, page + 1].filter((n) => n > 1 && n < pageCount);
+  const spread: (number | null)[] = [];
+  let previous = 0;
+  for (const n of [1, ...around, pageCount]) {
+    if (previous > 0 && n - previous > 1) {
+      spread.push(null);
+    }
+    spread.push(n);
+    previous = n;
+  }
+  return spread;
+}
+
+function href(n: number, toPast = past): string {
+  const params = new URLSearchParams();
+  if (toPast) {
+    params.set('scope', 'past');
+  }
+  if (n > 1) {
+    params.set('page', String(n));
+  }
+  const query = params.toString();
+  return query ? `/events?${query}` : '/events';
+}
+
+const now = new Date();
+---
+
+<DashboardLayout title="Events">
+  <p slot="head" class="muted">
+    {
+      past
+        ? `Raids ${session!.selectedGuildName} has already run, most recent first.`
+        : `Everything still to come in ${session!.selectedGuildName}, soonest first.`
+    }
+  </p>
+
+  <nav slot="actions" class="scopes" aria-label="Which events">
+    <a href={href(1, false)} aria-current={past ? undefined : 'page'}>Upcoming</a>
+    <a href={href(1, true)} aria-current={past ? 'page' : undefined}>Past</a>
+  </nav>
+
+  {failure && <p class="notice">{failure}</p>}
+
+  {
+    !failure && events.length === 0 && (
+      <div class="panel">
+        <div class="empty">
+          <h3>{past ? 'No raids behind you yet' : 'No events on the calendar'}</h3>
+          <p>
+            {past
+              ? 'Once a raid night has started it moves here, and a raid lead can attach its WarcraftLogs report.'
+              : `Raid nights are created from Discord. If that is a surprise, ${session!.selectedGuildName} may not be running Raider Mate yet.`}
+          </p>
+          {!past && <BotInstall />}
+        </div>
+      </div>
+    )
+  }
+
+  {
+    events.length > 0 && (
+      <div class="panel">
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th scope="col">Event</th>
+                <th scope="col">Type</th>
+                <th scope="col">{past ? 'Started' : 'Starts'}</th>
+                <th scope="col">{past ? 'Logs' : 'Signups close'}</th>
+                <th scope="col">
+                  <span class="visually-hidden">Open</span>
+                </th>
+              </tr>
+            </thead>
+            <tbody>
+              {shown.map((event) => (
+                <tr>
+                  <th scope="row">
+                    {/* The morph starts here. This name is on the event page's title
+                        too, so the row travels into the header rather than the list
+                        blinking out from under a raid lead mid-scan. */}
+                    <a
+                      class="row-link"
+                      href={`/events/${event.id}`}
+                      transition:name={`event-title-${event.id}`}
+                    >
+                      {event.title}
+                    </a>
+                  </th>
+                  <td>
+                    <span transition:name={`event-chips-${event.id}`}>
+                      <EventChips event={event} />
+                    </span>
+                  </td>
+                  <td class="when">
+                    <time datetime={event.starts_at}>
+                      {formatEventTime(event.starts_at, timezone)}
+                    </time>
+                  </td>
+                  {past ? (
+                    <td>
+                      <span class="cell-label">Logs</span>
+                      {/* The link the service offered, not a URL built here. Nothing
+                          means nobody has attached a report to this raid. */}
+                      {getLink(event, 'warcraftlogs') ? (
+                        <span class="logs__yes">Linked</span>
+                      ) : (
+                        <span class="dash">&mdash;</span>
+                      )}
+                    </td>
+                  ) : (
+                    <td>
+                      <span class="cell-label">Signups close</span>
+                      <span class="closes">{formatSignupWindow(event.signup_deadline, now)}</span>
+                      <time class="closes-at" datetime={event.signup_deadline}>
+                        {formatEventTime(event.signup_deadline, timezone)}
+                      </time>
+                    </td>
+                  )}
+                  <td class="go" aria-hidden="true">
+                    <svg viewBox="0 0 16 16" focusable="false">
+                      <path
+                        d="M6 3.5 10.5 8 6 12.5"
+                        fill="none"
+                        stroke="currentColor"
+                        stroke-width="1.5"
+                        stroke-linecap="round"
+                        stroke-linejoin="round"
+                      />
+                    </svg>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+
+        {pageCount > 1 && (
+          <nav class="pagination" aria-label="Events pages">
+            <span>
+              {start + 1}-{start + shown.length} of {events.length}
+            </span>
+            <div class="pagination__pages">
+              {page > 1 ? (
+                <a href={href(page - 1)} rel="prev">
+                  Previous
+                </a>
+              ) : (
+                <span aria-disabled="true">Previous</span>
+              )}
+              {pageNumbers().map((n) =>
+                n === null ? (
+                  <span class="pagination__gap" aria-hidden="true">
+                    &hellip;
+                  </span>
+                ) : (
+                  <a href={href(n)} aria-current={n === page ? 'page' : undefined}>
+                    {n}
+                  </a>
+                ),
+              )}
+              {page < pageCount ? (
+                <a href={href(page + 1)} rel="next">
+                  Next
+                </a>
+              ) : (
+                <span aria-disabled="true">Next</span>
+              )}
+            </div>
+          </nav>
+        )}
+      </div>
+    )
+  }
+</DashboardLayout>
+
+<style>
+  /* Two views of one collection, so a segmented control rather than a second place in
+     the main nav.
+
+     The active pill is a background on the link itself rather than a separate element
+     carrying a transition name. A named element is lifted into the view transition
+     layer for the swap, where it no longer sits behind anything, so a pill built that
+     way paints over its own label and scales between the two sizes on the way across.
+     The sliding marker belongs to the main nav, and one of them is enough. */
+  .scopes {
+    display: flex;
+    gap: 0.125rem;
+    padding: 0.1875rem;
+    border: 1px solid var(--border);
+    border-radius: var(--radius-lg);
+    background: var(--surface);
+  }
+
+  .scopes a {
+    padding: 0.3rem 0.75rem;
+    border: 1px solid transparent;
+    border-radius: var(--radius-md);
+    color: var(--text-secondary);
+    font-size: var(--fs-sm);
+    font-weight: 560;
+    text-decoration: none;
+    white-space: nowrap;
+    transition: color var(--dur-1) var(--ease);
+  }
+
+  .scopes a:hover {
+    color: var(--text-primary);
+  }
+
+  .scopes a[aria-current='page'] {
+    border-color: var(--border-strong);
+    background: var(--raised);
+    color: var(--text-primary);
+  }
+
+  /* The whole row is the target. The accessible name stays the event title, because
+     that is the anchor doing the stretching. */
+  tbody tr {
+    position: relative;
+  }
+
+  .row-link {
+    color: var(--text-primary);
+    font-size: var(--fs-md);
+    font-weight: 560;
+    text-decoration: none;
+  }
+
+  .row-link::after {
+    content: '';
+    position: absolute;
+    inset: 0;
+  }
+
+  tbody tr:hover .row-link,
+  .row-link:focus-visible {
+    color: var(--accent);
+  }
+
+  .when {
+    color: var(--text-secondary);
+    white-space: nowrap;
+  }
+
+  .cell-label {
+    display: none;
+    color: var(--text-tertiary);
+    font-size: var(--fs-xs);
+  }
+
+  .closes {
+    display: block;
+    color: var(--text-primary);
+    white-space: nowrap;
+  }
+
+  .closes-at {
+    display: block;
+    color: var(--text-tertiary);
+    font-size: var(--fs-xs);
+    white-space: nowrap;
+  }
+
+  .logs__yes {
+    color: var(--success);
+  }
+
+  .go {
+    width: 1px;
+    color: var(--text-tertiary);
+    text-align: right;
+  }
+
+  .go svg {
+    display: block;
+    width: 16px;
+    height: 16px;
+    transition: transform var(--dur-2) var(--ease);
+  }
+
+  tbody tr:hover .go {
+    color: var(--accent);
+  }
+
+  tbody tr:hover .go svg {
+    transform: translateX(2px);
+  }
+
+  .visually-hidden {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip-path: inset(50%);
+    white-space: nowrap;
+  }
+
+  /* No table scrolls sideways on a phone. Each row becomes a stacked block with its
+     column names inline. */
+  @media (max-width: 44rem) {
+    thead {
+      display: none;
+    }
+
+    tbody tr {
+      display: grid;
+      gap: 0.25rem;
+      padding: 0.875rem 1rem;
+      border-bottom: 1px solid var(--border-subtle);
+    }
+
+    tbody th,
+    tbody td {
+      padding: 0;
+      border: 0;
+    }
+
+    .cell-label {
+      display: inline;
+      margin-right: 0.375rem;
+    }
+
+    .go {
+      display: none;
+    }
+
+    .when,
+    .closes-at {
+      font-size: var(--fs-xs);
+    }
+
+    .closes {
+      display: inline;
+    }
+
+    .closes-at {
+      display: inline;
+      margin-left: 0.375rem;
+    }
+  }
+</style>

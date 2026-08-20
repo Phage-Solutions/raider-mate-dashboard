@@ -70,6 +70,12 @@ export interface Event extends Linked {
   difficulty?: RaidDifficulty;
   /** The resolved lead time, not what the creator asked for. 0 means no reminder. */
   reminder_lead_minutes?: number;
+  /**
+   * The WarcraftLogs report a raid lead attached after the night. Absent until someone
+   * does, and most events never get one. The `warcraftlogs` link carries the same URL;
+   * render from the link, since that is what the service offered.
+   */
+  warcraftlogs_url?: string;
 }
 
 export interface Signup extends Linked {
@@ -154,10 +160,37 @@ export interface DiscordRole {
   position: number;
 }
 
+/** The Discord roles a guild has mapped as raid leads. Admin-only, both ways. */
+export interface RaidLeadRoles extends Linked {
+  role_ids: string[];
+}
+
 export interface GuildChannels extends Linked {
   channels: DiscordChannel[];
 }
 
 export interface GuildRoles extends Linked {
   roles: DiscordRole[];
+}
+
+/**
+ * One guild the service knows this user in. Ids only: the service has no idea what a
+ * guild is called, so the dashboard pairs these with Discord's own list for names.
+ *
+ * No `_links`, and that is deliberate on the service's side: every guild-scoped route is
+ * bound to the actor's own guild, so a link to another guild's collection would answer
+ * 403, and a link that cannot be followed is worse than no link.
+ */
+export interface UserGuild {
+  discord_guild_id: string;
+}
+
+/**
+ * What the signed-in raider may do in the selected guild, answered by the service so
+ * this repo never has to hold its own copy of the rules. The `configure` link is the
+ * one the dashboard hangs its Configuration entry off.
+ */
+export interface GuildCapabilities extends Linked {
+  is_raid_lead: boolean;
+  is_guild_admin: boolean;
 }
