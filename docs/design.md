@@ -69,6 +69,42 @@ Advisories from the assigner are a different thing and should be shown: "HEALER:
 suggestion for 20 raiders is 4" is information a raid lead wants before pulling. Show
 them as information, never as errors, and never as something blocking a save.
 
+### How it is built
+
+The builder is `src/islands/comp-builder.astro`, reached at
+`/events/{id}/comp/{name}` and nowhere else. The route is the auth boundary: it looks
+for the comp's `save` link in frontmatter and redirects when it is absent. That one
+lookup is the whole permission decision, because the service sends `save` only to a raid
+lead and only on a manual comp.
+
+Three things follow from the link set rather than from a preference:
+
+- **Mode conversion is a form post that reloads.** Flipping to `MANUAL` is what makes the
+  service start sending `save`, so the flip is literally what turns a read-only board
+  into an editable one. Reloading is the honest render of a resource whose links changed.
+- **The island performs exactly one write.** Everything else on the comp is an ordinary
+  form, which keeps the interactive surface to the board itself.
+- **The dashboard cannot create a comp.** An event with no comp has no comp resource, so
+  there is no `lock` or `save` link to hang anything off. The bot's lock creates the
+  first one. The event page says so.
+- **Renaming is a `rename` link, not a save under a new name.** The service moves the
+  comp and its slots together; saving under a new name would leave the old comp behind
+  with no way to remove it. The link is offered in both modes, because a name is a label
+  rather than a claim on who owns the board.
+
+State lives in `src/lib/comp-board.ts`, which is pure and tested: it moves ids between
+six columns and serialises the result. Everything it does is arranging a data structure
+the service will accept verbatim, so it is not the domain logic rule 1 forbids.
+
+Two invariants there are worth stating, because they are the only two ways the service
+refuses a board outright. A raider sits in exactly one column, so nobody is placed
+twice. Every card carries a role wherever it sits, including on the bench, so no slot
+arrives without one. Neither is checked at save time; both are impossible to build.
+
+The board is drawn server-side and the script moves the existing card nodes rather than
+re-rendering. That keeps one copy of the card markup in the repo, keeps focus on the
+node a raid lead is carrying, and makes the move animation a real element travelling.
+
 ## 4. Bench
 
 Bench membership lives on `comp_slots.is_bench`, decided fresh by every lock. It is not
@@ -155,6 +191,11 @@ ids on every request, so the staleness window is entirely on this side.
   form `POST` whose `Origin` is not this site. Verified, not assumed. That check keys
   on form content types, so the moment an island posts JSON to an API route, the route
   needs its own token.
+
+  The comp builder is the first island to write anything, and it sidesteps this rather
+  than settling it: it posts `FormData` with the board in one field, which keeps the
+  origin check covering it. The open question is unchanged for whatever posts a real
+  JSON body first.
 - Knowing which guilds run Raider Mate. The picker lists every Discord server the user
   is in, because the service has no endpoint that says which ones it knows about. An
   unregistered guild renders empty, which is honest but not friendly.

@@ -1,10 +1,13 @@
 ---
+import CompAdvisories from '../../../components/comp-advisories.astro';
 import EventChips from '../../../components/event-chips.astro';
 import DashboardLayout from '../../../layouts/dashboard-layout.astro';
 import { fetchGuildTimezone, formatEventTime, formatSignupWindow } from '../../../lib/guild-time';
 import { getLink, hasLink } from '../../../lib/links';
+import { ROLE_HUES, ROLE_LABELS, ROLE_ORDER } from '../../../lib/roles';
 import { noticeFor } from '../../../lib/service-notice';
 import { ServiceError } from '../../../lib/service-error';
+import { STATUS_HUES, STATUS_LABELS } from '../../../lib/signup-status';
 import { classColor } from '../../../lib/wow-class';
 import type {
   Assignment,
@@ -15,7 +18,6 @@ import type {
   LateRequest,
   Role,
   Signup,
-  SignupStatus,
 } from '../../../lib/service-types';
 
 export const prerender = false;
@@ -39,44 +41,10 @@ const NOTICES: Record<string, string> = {
     'That is not a WarcraftLogs report link. It should look like https://www.warcraftlogs.com/reports/aBcD1234.',
   failed: 'Raider Mate had a problem with that.',
   unreachable: 'Raider Mate is not answering right now.',
+  auto: 'That comp is on auto. Take manual control before editing it.',
+  manual: 'That comp is manual. Locking it would throw the board away.',
 };
 const notice = NOTICES[Astro.url.searchParams.get('notice') ?? ''];
-
-const STATUS_LABELS: Record<SignupStatus, string> = {
-  CONFIRMED: 'Confirmed',
-  TENTATIVE: 'Tentative',
-  DECLINED: 'Declined',
-  LATE: 'Late',
-  ABSENT: 'Absent',
-  NO_SHOW: 'No show',
-};
-
-// A raid lead reads the colour before they finish reading the word, which is the point
-// of a status column twenty rows long.
-const STATUS_HUES: Record<SignupStatus, string> = {
-  CONFIRMED: 'var(--success)',
-  TENTATIVE: 'var(--info)',
-  DECLINED: 'var(--danger)',
-  LATE: 'var(--warning)',
-  ABSENT: 'var(--text-tertiary)',
-  NO_SHOW: 'var(--danger)',
-};
-
-const ROLE_LABELS: Record<Role, string> = {
-  TANK: 'Tanks',
-  HEALER: 'Healers',
-  MDPS: 'Melee',
-  RDPS: 'Ranged',
-};
-
-const ROLE_HUES: Record<Role, string> = {
-  TANK: 'var(--role-tank)',
-  HEALER: 'var(--role-healer)',
-  MDPS: 'var(--role-mdps)',
-  RDPS: 'var(--role-rdps)',
-};
-
-const ROLE_ORDER: Role[] = ['TANK', 'HEALER', 'MDPS', 'RDPS'];
 
 let event: Event | null = null;
 let failure: string | null = null;
@@ -133,7 +101,11 @@ if (event) {
 const logsUrl = event ? getLink(event, 'warcraftlogs')?.href : undefined;
 
 const signedUp = new Set(signups.map((signup) => signup.character_id));
-const unsigned = mine.filter((character) => !signedUp.has(character.id));
+// Main first, since it is the character most people are signing up: everyone else
+// alphabetically, so a long roster of alts is still findable without a search box.
+const unsigned = mine
+  .filter((character) => !signedUp.has(character.id))
+  .sort((a, b) => Number(b.is_main) - Number(a.is_main) || a.name.localeCompare(b.name));
 const now = new Date();
 
 const mineIds = new Set(mine.map((character) => character.id));
@@ -161,6 +133,15 @@ function inRole(board: Board, role: Role): Assignment[] {
 
 function slotName(slot: Assignment): string {
   return slot.character?.name ?? slot.character_id;
+}
+
+/**
+ * Why the assigner put someone where it did. A manual board has no such answer: the
+ * service stamps every hand-placed slot with the same sentence, and repeating "placed by
+ * a raid lead" twenty times says nothing the Manual badge above has not already said.
+ */
+function reasonFor(board: Board, slot: Assignment): string | undefined {
+  return board.mode === 'MANUAL' ? undefined : slot.reason;
 }
 ---
 
@@ -251,6 +232,34 @@ function slotName(slot: Assignment): string {
   {
     event && (
       <>
+        {unsigned.length > 0 && (
+          <section class="section signup">
+            <h2>Sign up</h2>
+            {/* No signup row yet, so there is no allowed_statuses to render from, and
+                inventing the rest of the set here would be this repo guessing. Once the
+                row exists it carries its own; this is only ever the first CONFIRMED. */}
+            <form
+              method="post"
+              action={`/events/${event.id}/signup`}
+              data-astro-reload
+              class="signup-form"
+            >
+              <select name="character_id" required aria-label="Character to sign up">
+                <option value="" selected disabled>
+                  Choose a character
+                </option>
+                {unsigned.map((character) => (
+                  <option value={character.id}>{character.name}</option>
+                ))}
+              </select>
+              <input type="hidden" name="status" value="CONFIRMED" />
+              <button class="button" type="submit">
+                Sign up
+              </button>
+            </form>
+          </section>
+        )}
+
         {
           /* The comp is what a raid lead opens this page for, so it leads. Before it is
              locked there is nothing to show, and a full empty panel would push the
@@ -266,29 +275,71 @@ function slotName(slot: Assignment): string {
               {boards.map((board) => (
                 <div class="panel board">
                   <div class="panel__head">
-                    <h3>{board.name}</h3>
+                    <h3 transition:name={`comp-${event.id}-${board.name}`}>{board.name}</h3>
                     <span class="badge">{board.mode === 'AUTO' ? 'Auto' : 'Manual'}</span>
+
+                    {/* Rendered from the comp's own links. A raider gets none of this
+                        strip; a raid lead gets exactly the transitions the service
+                        offered on this comp, which is one per mode and never both. */}
+                    <div class="board__controls">
+                      {hasLink(board, 'save') && (
+                        <a
+                          class="button button--quiet"
+                          href={`/events/${event.id}/comp/${encodeURIComponent(board.name)}`}
+                        >
+                          Edit comp
+                        </a>
+                      )}
+
+                      {hasLink(board, 'lock') && (
+                        <form
+                          method="post"
+                          action={`/events/${event.id}/comp-lock`}
+                          data-astro-reload
+                        >
+                          <input type="hidden" name="name" value={board.name} />
+                          <button class="button button--ghost" type="submit">
+                            Rebuild from signups
+                          </button>
+                        </form>
+                      )}
+
+                      {/* The path docs/design.md describes: lock an auto comp, take it
+                          manual, then hand-edit the assigner's output. Converting leaves
+                          the slots alone, which is what makes it a starting board rather
+                          than an empty one. */}
+                      {hasLink(board, 'mode') && board.mode === 'AUTO' && (
+                        <form
+                          method="post"
+                          action={`/events/${event.id}/comp-mode`}
+                          data-astro-reload
+                        >
+                          <input type="hidden" name="name" value={board.name} />
+                          <input type="hidden" name="mode" value="MANUAL" />
+                          <button class="button" type="submit">
+                            Take manual control
+                          </button>
+                        </form>
+                      )}
+
+                      {hasLink(board, 'mode') && board.mode === 'MANUAL' && (
+                        <form
+                          method="post"
+                          action={`/events/${event.id}/comp-mode`}
+                          data-astro-reload
+                        >
+                          <input type="hidden" name="name" value={board.name} />
+                          <input type="hidden" name="mode" value="AUTO" />
+                          <button class="button button--ghost" type="submit">
+                            Hand back to the assigner
+                          </button>
+                        </form>
+                      )}
+                    </div>
                   </div>
 
                   <div class="panel__body">
-                    {/* Information from the assigner, never an error and never a blocker. */}
-                    {board.advisories && board.advisories.length > 0 && (
-                      <ul class="advisories">
-                        {board.advisories.map((advisory) => (
-                          <li>
-                            {advisory.role && (
-                              <span
-                                class="advisories__dot"
-                                style={`background: ${ROLE_HUES[advisory.role]}`}
-                                aria-hidden="true"
-                              />
-                            )}
-                            {advisory.role ? `${advisory.role}: ` : ''}
-                            {advisory.message}
-                          </li>
-                        ))}
-                      </ul>
-                    )}
+                    <CompAdvisories advisories={board.advisories} />
 
                     <div class="roles">
                       {ROLE_ORDER.map((role) => (
@@ -302,7 +353,9 @@ function slotName(slot: Assignment): string {
                             {inRole(board, role).map((slot) => (
                               <li>
                                 {slotName(slot)}
-                                {slot.reason && <span class="reason">{slot.reason}</span>}
+                                {reasonFor(board, slot) && (
+                                  <span class="reason">{reasonFor(board, slot)}</span>
+                                )}
                               </li>
                             ))}
                           </ul>
@@ -322,7 +375,9 @@ function slotName(slot: Assignment): string {
                           {bench(board).map((slot) => (
                             <li>
                               {slotName(slot)}
-                              {slot.reason && <span class="reason">{slot.reason}</span>}
+                              {reasonFor(board, slot) && (
+                                <span class="reason">{reasonFor(board, slot)}</span>
+                              )}
                             </li>
                           ))}
                         </ul>
@@ -462,37 +517,6 @@ function slotName(slot: Assignment): string {
             </div>
           )}
         </section>
-
-        {unsigned.length > 0 && (
-          <section class="section">
-            <h2>Sign up another character</h2>
-            <ul class="mine">
-              {unsigned.map((character) => (
-                <li>
-                  <span class="raider">
-                    <span
-                      class="raider__mark"
-                      style={`background: ${classColor(character.class) ?? 'var(--border-strong)'}`}
-                      aria-hidden="true"
-                    />
-                    <span class="raider__name">{character.name}</span>
-                  </span>
-                  {/* One button, and it means what it says. There is no signup row yet,
-                      so there is no allowed_statuses to render from, and inventing the
-                      rest of the set here would be this repo guessing. Once the row
-                      exists it carries its own. */}
-                  <form method="post" action={`/events/${event.id}/signup`} data-astro-reload>
-                    <input type="hidden" name="character_id" value={character.id} />
-                    <input type="hidden" name="status" value="CONFIRMED" />
-                    <button class="button" type="submit">
-                      Sign up
-                    </button>
-                  </form>
-                </li>
-              ))}
-            </ul>
-          </section>
-        )}
 
         {hasLink(event, 'late-requests') && (
           <section class="section">
@@ -760,54 +784,47 @@ function slotName(slot: Assignment): string {
     color: var(--hue);
   }
 
-  .mine {
-    display: grid;
-    gap: 0.5rem;
-    margin: 0;
-    padding: 0;
-    list-style: none;
+  /* First on the page, so it gets none of .section's margin-top-from-a-sibling. It
+     still needs air before whatever it sits on top of, comp or not. */
+  .signup {
+    margin-bottom: 1.75rem;
   }
 
-  .mine li {
+  .signup-form {
     display: flex;
     flex-wrap: wrap;
     gap: 0.75rem;
     align-items: center;
-    justify-content: space-between;
-    padding: 0.75rem 1rem;
-    border: 1px solid var(--border);
-    border-radius: var(--radius-lg);
-    background: var(--surface);
+  }
+
+  .signup-form select {
+    width: auto;
+    min-width: 14rem;
+  }
+
+  /* The button exists the whole time (no JS to hide it behind), but reads as inert
+     until the required select actually holds a character: an empty option is invalid
+     while it is the placeholder, valid once anything real is chosen. */
+  .signup-form:has(select:invalid) button {
+    opacity: 0.5;
+    pointer-events: none;
   }
 
   .board + .board {
     margin-top: 0.75rem;
   }
 
-  .advisories {
-    display: grid;
-    gap: 0.375rem;
-    margin: 0 0 1.25rem;
-    padding: 0.75rem 0.875rem;
-    border: 1px solid var(--border-subtle);
-    border-radius: var(--radius-lg);
-    background: var(--raised);
-    color: var(--text-secondary);
-    font-size: var(--fs-sm);
-    list-style: none;
-  }
-
-  .advisories li {
+  /* The comp's own transitions, and only the ones the service offered. Wraps under the
+     name on a narrow panel head rather than squeezing the badge. */
+  .board__controls {
     display: flex;
+    flex-wrap: wrap;
     gap: 0.5rem;
-    align-items: baseline;
+    margin-left: auto;
   }
 
-  .advisories__dot {
-    width: 6px;
-    height: 6px;
-    flex: none;
-    border-radius: var(--radius-full);
+  .board__controls form {
+    display: contents;
   }
 
   .roles {
@@ -888,15 +905,6 @@ function slotName(slot: Assignment): string {
     align-items: center;
     justify-content: space-between;
     margin-bottom: 0.25rem;
-  }
-
-  .visually-hidden {
-    position: absolute;
-    width: 1px;
-    height: 1px;
-    overflow: hidden;
-    clip-path: inset(50%);
-    white-space: nowrap;
   }
 
   @media (max-width: 52rem) {

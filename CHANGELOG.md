@@ -12,6 +12,55 @@ Sections are `Added`, `Changed`, `Deprecated`, `Removed`, `Fixed`, `Security`.
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-08-20
+
+### Added
+
+- **Comp builder.** A raid lead can hand-edit a comp from the dashboard: drag raiders
+  between the tank, healer, melee, ranged and bench columns, and save the board. This is
+  the one thing the bot cannot do.
+
+  A comp belongs either to the assigner or to you, never to both. The event page now
+  carries the controls for that: **Rebuild from signups** re-runs the assigner over an
+  auto comp, **Take manual control** hands you its board to edit, and **Hand back to the
+  assigner** reverses it. Converting leaves the slots alone, so the usual path is
+  rebuild, take control, then adjust what the assigner came up with.
+
+  Nothing in the builder argues with you. A healer placed as a tank, a raider who never
+  signed up, ten people for a twenty-man raid: all saved exactly as arranged. Advisories
+  from the assigner are still shown, and still never block a save.
+
+- The comp builder works without a mouse. Enter picks a raider up, the arrow keys move
+  them between and within columns, Enter puts them down, and Escape puts them back where
+  they started. Every move is announced to a screen reader.
+
+- **A comp can still be edited after the raid has started**, for the swap that happens
+  two minutes before pull. The builder says the raid has started and then stays out of
+  the way.
+
+- The encounter marker on the comp builder occasionally has something to say. Fifteen
+  seconds, once a minute, and it stops entirely while the tab is in the background.
+  Unattributed, because you either know it or you do not.
+
+- **A comp can be renamed** from the builder, under Rename. The board comes with it, so
+  changing what a group is called costs nothing. A name another comp on the event
+  already uses is refused with a plain sentence.
+
+  Needs raider-mate-service 0.8.0 or newer. Against an older service the control does
+  not appear, because the service does not offer the link it is rendered from.
+
+### Changed
+
+- A locked manual comp no longer repeats "placed by a raid lead" under every single
+  name. The Manual badge on the panel already says it once.
+
+### Fixed
+
+- **A comp edited here now reaches Discord.** Saving a board, locking one, renaming one
+  or converting one left the event message in the channel showing the previous comp.
+  The fix is in raider-mate-service, which queues the redraw; this repo needed no change
+  beyond pointing at a version that has it.
+
 ## [0.2.1] - 2026-08-20
 
 ### Changed

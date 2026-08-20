@@ -402,8 +402,12 @@ Where the API is unavailable the navigation is an ordinary one and nothing is lo
 - **Don't** use a saturated colour that does not encode role, class, difficulty, or
   state.
 - **Don't** add a drop shadow to a panel or a row.
-- **Don't** introduce a second typeface, gradient text, or a glow that is not a focus
-  ring.
+- **Don't** introduce a second typeface, gradient text, or a glow. The two exceptions
+  are the focus ring and the comp builder's encounter band, where the beams and the
+  marker they converge on carry a bloom. That band is this surface's one authored
+  moment and the glow is what makes a beam read as light arriving somewhere rather than
+  as a coloured line; it is named here so it stays one place rather than becoming a
+  house style. Nothing outside that band glows.
 - **Don't** nest a card inside a card, or use a same-size card grid as a page's
   structure.
 - **Don't** stage a page-load animation. This surface opens into a task.

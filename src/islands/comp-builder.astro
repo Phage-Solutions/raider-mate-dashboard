@@ -1,0 +1,1378 @@
+---
+import EncounterSigil from '../components/encounter-sigil.astro';
+import type { BoardState, Card, Column } from '../lib/comp-board';
+import { COLUMN_ORDER, seatedCount } from '../lib/comp-board';
+import { ROLE_HUES, ROLE_LABELS } from '../lib/roles';
+import type { RaidDifficulty } from '../lib/service-types';
+import { STATUS_HUES, STATUS_LABELS } from '../lib/signup-status';
+import { classColor } from '../lib/wow-class';
+
+interface Props {
+  eventId: string;
+  compName: string;
+  cards: Card[];
+  state: BoardState;
+  difficulty: RaidDifficulty | undefined;
+  eventTitle: string;
+}
+
+const { eventId, compName, cards, state, difficulty, eventTitle } = Astro.props;
+
+const byId = new Map(cards.map((card) => [card.characterId, card]));
+
+/**
+ * Bench and the tray head their own columns. "Available" rather than "Signups", because
+ * the column holds anyone who can be placed, and a raider already on the board is
+ * signed up too.
+ */
+const COLUMN_LABELS: Record<Column, string> = {
+  ...ROLE_LABELS,
+  BENCH: 'Bench',
+  TRAY: 'Available',
+};
+
+const COLUMN_HUES: Record<Column, string | null> = {
+  ...ROLE_HUES,
+  BENCH: null,
+  TRAY: null,
+};
+
+/**
+ * The starting board, for the script to take over from. It is state for this page load
+ * and nothing more: no storage, because the board that matters is the one on the
+ * service and the only way it gets there is a save.
+ *
+ * Escaped rather than interpolated raw. A raider's character name reaches this string,
+ * and `</script` inside a JSON block ends the block whatever the JSON thinks.
+ */
+const payload = JSON.stringify({ state }).replace(/</g, '\\u003c');
+---
+
+<section
+  class="builder"
+  data-builder
+  data-event={eventId}
+  data-comp={compName}
+  aria-label={`${compName} comp board`}
+>
+  <div class="bar">
+    <p class="bar__count">
+      <span data-seated>{seatedCount(state)}</span> seated<span class="bar__sep">·</span>
+      <span data-benched>{state.columns.BENCH.length}</span> benched
+    </p>
+
+    <div class="bar__actions">
+      <span class="bar__msg" data-message role="status" aria-live="polite"></span>
+      <button class="button button--quiet" type="button" data-save disabled>Save comp</button>
+    </div>
+  </div>
+
+  <div class="board" data-board>
+    {
+      /* What the comp is pointed at, and what each role does about it. The beams are
+        drawn by script from the live counts, so an empty role has no beam at all: a
+        board with nobody holding threat says so before you have read a single name. */
+    }
+    <svg class="beams" data-beams aria-hidden="true" focusable="false"></svg>
+
+    <div class="encounter" data-encounter>
+      <EncounterSigil difficulty={difficulty} title={eventTitle} />
+
+      {
+        /* Flavour, and hidden from assistive tech on purpose: a boss line read out over
+          the board every minute would interrupt a raid lead who is working. */
+      }
+      <blockquote class="quote" data-quote aria-hidden="true"></blockquote>
+    </div>
+
+    {
+      COLUMN_ORDER.map((column) => (
+        <section
+          class:list={[
+            'col',
+            // Tanks, healers and the bench run the width of the formation, so their
+            // raiders flow across rather than stacking one per row down a wide box.
+            (column === 'TANK' || column === 'HEALER' || column === 'BENCH') && 'col--wide',
+            column === 'TRAY' && 'col--tray',
+          ]}
+          style={`grid-area: ${column.toLowerCase()}; --hue: ${COLUMN_HUES[column] ?? 'var(--border-strong)'}`}
+          data-column={column}
+        >
+          <h3 class="col__head">
+            {COLUMN_HUES[column] && <span class="col__dot" aria-hidden="true" />}
+            {COLUMN_LABELS[column]}
+            <span class="col__count" data-count>
+              {state.columns[column].length}
+            </span>
+          </h3>
+
+          <ul class="col__list" data-list>
+            {state.columns[column].map((id) => {
+              const card = byId.get(id)!;
+              const hue = ROLE_HUES[state.roles[id]!];
+              return (
+                <li>
+                  <button
+                    class="card"
+                    type="button"
+                    data-card={id}
+                    data-name={card.name}
+                    data-roles={card.declaredRoles.join(',')}
+                    aria-pressed="false"
+                    style={`--hue: ${hue}; --class: ${classColor(card.class) ?? 'var(--border-strong)'}`}
+                  >
+                    <span class="card__mark" aria-hidden="true" />
+                    <span class="card__body">
+                      <span class="card__name">{card.name}</span>
+                      <span class="card__sub">
+                        <span class="card__spec">
+                          {card.spec ? `${card.spec} ` : ''}
+                          {card.class ?? ''}
+                        </span>
+                        {/* Rounded, because an average item level arrives fractional and
+                            a column reading 299, 292.188, 283 is the ragged edge the
+                            tabular figures exist to prevent. */}
+                        {card.ilvl ? <span class="card__ilvl">{Math.round(card.ilvl)}</span> : null}
+                      </span>
+                    </span>
+                    {card.status && (
+                      <span
+                        class="card__status"
+                        style={`--status: ${STATUS_HUES[card.status]}`}
+                        title={STATUS_LABELS[card.status]}
+                      >
+                        <span class="visually-hidden">{STATUS_LABELS[card.status]}</span>
+                      </span>
+                    )}
+                  </button>
+                </li>
+              );
+            })}
+          </ul>
+
+          <p class="col__empty" data-empty hidden={state.columns[column].length > 0}>
+            Drop a raider here
+          </p>
+        </section>
+      ))
+    }
+  </div>
+
+  <p class="visually-hidden" data-live aria-live="polite"></p>
+  <script type="application/json" data-payload is:inline set:html={payload} />
+</section>
+
+<script>
+  import type { BoardState, Column } from '../lib/comp-board';
+  import { BOSS_QUOTES } from '../lib/boss-quotes';
+  import { COLUMN_ORDER, differs, move, seatedCount, toSave } from '../lib/comp-board';
+  import { ROLE_HUES } from '../lib/roles';
+  import type { Role } from '../lib/service-types';
+  import { classColor } from '../lib/wow-class';
+
+  /**
+   * The comp builder. Everything a raid lead does here is a raider moving between six
+   * columns, so that is the whole model: a state object saying who is where, a DOM
+   * reconcile that moves the existing card nodes to match, and one whole-board save.
+   *
+   * Nothing in here judges a board. A healer dropped into tanks lands in tanks, with no
+   * warning and no correction, because the raid lead is the authority and a builder that
+   * argues gets switched off. The two things the service will refuse, a raider placed
+   * twice and a slot with no role, are impossible by construction: a card sits in exactly
+   * one column, and every card carries a role wherever it sits.
+   */
+
+  const COLUMN_LABELS: Record<Column, string> = {
+    TANK: 'Tanks',
+    HEALER: 'Healers',
+    MDPS: 'Melee',
+    RDPS: 'Ranged',
+    BENCH: 'Bench',
+    TRAY: 'Available',
+  };
+
+  const still = matchMedia('(prefers-reduced-motion: reduce)');
+
+  const SVG_NS = 'http://www.w3.org/2000/svg';
+
+  /**
+   * The comet: how many segments the tail is built from, how long each one is, and how
+   * far apart they sit, in path pixels. SEG larger than STEP is what makes them overlap
+   * into one streak rather than reading as beads.
+   */
+  const TAPER = 7;
+  const SEG = 9;
+  const STEP = 5;
+
+  /**
+   * Path pixels a second. Shared, so a long beam is not a slow one.
+   *
+   * Slow on purpose. This sits open beside a raid for three hours, and anything quick
+   * enough to notice is quick enough to keep noticing.
+   */
+  const SPEED = 78;
+
+  /** How long a boss line stays up, how often one comes round, and the opening pause. */
+  const QUOTE_HELD = 15_000;
+  const QUOTE_EVERY = 60_000;
+  const QUOTE_OPENING = 4_000;
+
+  /** Far enough to mean a drag rather than a click that wobbled. */
+  const DRAG_THRESHOLD = 4;
+
+  function setUp(root: HTMLElement) {
+    // Asserted rather than guarded: this component renders all four itself, a few dozen
+    // lines up. A guard here would be checking its own markup for typos.
+    const payloadEl = root.querySelector<HTMLScriptElement>('[data-payload]')!;
+    const saveButton = root.querySelector<HTMLButtonElement>('[data-save]')!;
+    const message = root.querySelector<HTMLElement>('[data-message]')!;
+    const live = root.querySelector<HTMLElement>('[data-live]')!;
+    const board = root.querySelector<HTMLElement>('[data-board]')!;
+    const beams = root.querySelector<SVGSVGElement>('[data-beams]')!;
+    const sigil = root.querySelector<HTMLElement>('[data-sigil]')!;
+
+    let state = (JSON.parse(payloadEl.textContent!) as { state: BoardState }).state;
+    let saved = state;
+
+    const columnEl = (column: Column) =>
+      root.querySelector<HTMLElement>(`[data-column="${column}"]`)!;
+    const listEl = (column: Column) => columnEl(column).querySelector<HTMLElement>('[data-list]')!;
+    const cardEl = (id: string) =>
+      root.querySelector<HTMLElement>(`[data-card="${CSS.escape(id)}"]`)!;
+    const cards = () => [...root.querySelectorAll<HTMLElement>('[data-card]')];
+
+    const nameOf = (id: string) => cardEl(id).dataset.name ?? id;
+
+    function announce(text: string) {
+      live.textContent = text;
+    }
+
+    /**
+     * Where every card is on screen right now. Taken before a move and again after, so
+     * the cards that shifted can be animated from one to the other: the raid lead sees
+     * a raider travel rather than blink out of one column and into another.
+     */
+    function positions(): Map<HTMLElement, DOMRect> {
+      return new Map(cards().map((card) => [card, card.getBoundingClientRect()]));
+    }
+
+    function play(before: Map<HTMLElement, DOMRect>, from?: { card: HTMLElement; rect: DOMRect }) {
+      if (still.matches) {
+        return;
+      }
+      for (const card of cards()) {
+        const start = from && from.card === card ? from.rect : before.get(card);
+        if (!start) {
+          continue;
+        }
+        const end = card.getBoundingClientRect();
+        const dx = start.left - end.left;
+        const dy = start.top - end.top;
+        if (Math.abs(dx) < 1 && Math.abs(dy) < 1) {
+          continue;
+        }
+        card.animate([{ transform: `translate(${dx}px, ${dy}px)` }, { transform: 'none' }], {
+          duration: 280,
+          easing: 'cubic-bezier(0.16, 1, 0.3, 1)',
+        });
+      }
+    }
+
+    /**
+     * Moves the existing card nodes to match the state. Moving them rather than
+     * re-rendering is deliberate twice over: the node keeps its focus, and there is one
+     * copy of the card markup in this repo rather than a template here shadowing the one
+     * Astro already rendered.
+     */
+    function reconcile() {
+      const active = document.activeElement;
+
+      for (const column of COLUMN_ORDER) {
+        const list = listEl(column);
+        state.columns[column].forEach((id, at) => {
+          const card = cardEl(id);
+          const item = card.parentElement!;
+          if (item !== list.children[at]) {
+            list.insertBefore(item, list.children[at] ?? null);
+          }
+          card.style.setProperty('--hue', ROLE_HUES[state.roles[id]!]);
+        });
+
+        const count = state.columns[column].length;
+        columnEl(column).querySelector('[data-count]')!.textContent = String(count);
+        columnEl(column).querySelector<HTMLElement>('[data-empty]')!.hidden = count > 0;
+      }
+
+      root.querySelector('[data-seated]')!.textContent = String(seatedCount(state));
+      root.querySelector('[data-benched]')!.textContent = String(state.columns.BENCH.length);
+
+      roveTabIndex();
+      drawBeams();
+
+      // Relocating a focused node can drop focus in some browsers, and a raid lead
+      // driving this from the keyboard would lose their place mid-move.
+      if (
+        active instanceof HTMLElement &&
+        active.dataset.card &&
+        document.activeElement !== active
+      ) {
+        active.focus();
+      }
+
+      const dirty = differs(state, saved);
+      saveButton.disabled = !dirty;
+      saveButton.classList.toggle('button--quiet', !dirty);
+      if (dirty) {
+        message.textContent = '';
+        delete message.dataset.tone;
+      }
+    }
+
+    /**
+     * The encounter: what each role is doing about the thing the comp is pointed at.
+     *
+     * Tanks, melee and ranged run a beam up to the sigil, because threat and damage go
+     * one way. Healers arc sideways across the raid instead, because that is where
+     * healing goes. Beam width is the head count, so the picture is the comp: no tanks
+     * means no beam holding the boss, and that reads before any name does.
+     *
+     * Redrawn from the live board, never from a template. Cosmetic in the sense that
+     * nothing breaks without it, and not cosmetic at all in what it says.
+     */
+    function drawBeams() {
+      const box = board.getBoundingClientRect();
+      if (box.width < 1 || box.height < 1) {
+        return;
+      }
+      beams.setAttribute('viewBox', `0 0 ${box.width} ${box.height}`);
+
+      /** A column's box, in board coordinates. */
+      const at = (column: Column) => {
+        const r = columnEl(column).getBoundingClientRect();
+        return {
+          left: r.left - box.left,
+          right: r.right - box.left,
+          top: r.top - box.top,
+          bottom: r.bottom - box.top,
+          cx: r.left + r.width / 2 - box.left,
+          cy: r.top + r.height / 2 - box.top,
+        };
+      };
+
+      const sigilBox = sigil.getBoundingClientRect();
+      const boss = {
+        x: sigilBox.left + sigilBox.width / 2 - box.left,
+        y: sigilBox.bottom - box.top,
+      };
+
+      const tank = at('TANK');
+      const melee = at('MDPS');
+      const ranged = at('RDPS');
+      const healer = at('HEALER');
+      const tray = at('TRAY');
+
+      // How far the marker stands off the front line. Every beam that has to get past
+      // the tank panel turns in inside this band, which is empty by construction.
+      const standoff = Math.max(tank.top - boss.y, 16);
+
+      /*
+       * How far outside a panel a beam swings to get round it.
+       *
+       * Measured per side rather than assumed, because the two sides have nothing like
+       * the same room. Left of the formation is the page's own gutter, twenty-odd
+       * pixels of nothing. Right of it is the tray, with only the grid gap in between,
+       * and a fixed swing wide enough for the left lands inside the tray panel.
+       */
+      const WANTED = 16;
+      const rightEdge = tray.left > ranged.right ? tray.left : box.width;
+      const outLeft = melee.left - Math.min(WANTED, 20);
+      const outRight = ranged.right + Math.max(Math.min(WANTED, rightEdge - ranged.right - 4), 4);
+
+      const drawn: Array<{ d: string; hue: string; count: number }> = [];
+
+      /*
+       * A role with raiders in it flows; an empty one is drawn as a broken line and
+       * stays still. Motion means the role is doing something, so a gap in the comp is
+       * the one place on the board where nothing is moving.
+       */
+      const beam = (path: string, hue: string, count: number) => {
+        drawn.push({ d: path, hue, count });
+      };
+
+      // Threat. Tanks stand directly under the marker, so a single line between them is
+      // a stub nobody can see: it is a pair of strokes off the shoulders of the front
+      // line instead. Warrior colour, because here the hue says which line is holding
+      // the boss rather than which column it came from.
+      const tanks = state.columns.TANK.length;
+      const tankHue = classColor('WARRIOR') ?? ROLE_HUES.TANK;
+      const spread = Math.min(tank.right - tank.cx, 150) * 0.75;
+      for (const side of [-1, 1]) {
+        const x = tank.cx + spread * side;
+        beam(
+          `M ${x} ${tank.top} C ${x} ${tank.top - standoff * 0.55}, ${boss.x} ${boss.y + standoff * 0.5}, ${boss.x} ${boss.y}`,
+          tankHue,
+          tanks,
+        );
+      }
+
+      /*
+       * Damage, going round the front line rather than through it.
+       *
+       * Three moves, and the middle one is the point: swing clear of the panel edge,
+       * run straight up the outside, and only then turn in, above the tanks. A single
+       * curve from the damage row to the marker is what put strokes across the tank
+       * panel, because the shortest path between those two points goes right over it.
+       */
+      const damage: Array<[Role, string, number, number, number]> = [
+        ['MDPS', ROLE_HUES.MDPS, melee.left, outLeft, melee.top + 46],
+        ['RDPS', ROLE_HUES.RDPS, ranged.right, outRight, ranged.top + 46],
+      ];
+
+      const turnY = tank.top - standoff * 0.35;
+
+      for (const [role, hue, edgeX, outX, edgeY] of damage) {
+        beam(
+          `M ${edgeX} ${edgeY}` +
+            ` C ${outX} ${edgeY}, ${outX} ${edgeY}, ${outX} ${edgeY - 34}` +
+            ` L ${outX} ${turnY}` +
+            ` C ${outX} ${boss.y}, ${boss.x} ${boss.y}, ${boss.x} ${boss.y}`,
+          hue,
+          state.columns[role].length,
+        );
+      }
+
+      // Healing runs the other way and never at the boss: up from the back line into
+      // each group it is keeping alive. The line to the tanks squeezes through the gap
+      // between the two damage columns, which is the only way through and reads like it.
+      const healers = state.columns.HEALER.length;
+      for (const role of ['TANK', 'MDPS', 'RDPS'] as Role[]) {
+        const to = at(role);
+        const bow = Math.max((healer.top - to.bottom) * 0.4, 16);
+        beam(
+          `M ${healer.cx} ${healer.top} C ${healer.cx} ${healer.top - bow}, ${to.cx} ${to.bottom + bow}, ${to.cx} ${to.bottom}`,
+          ROLE_HUES.HEALER,
+          healers,
+        );
+      }
+
+      paint(drawn);
+      sigil.classList.toggle('sigil--empty', seatedCount(state) === 0);
+    }
+
+    /*
+     * Draws the beams, and gives each flowing one a tapered comet.
+     *
+     * The comet is a run of short segments along the same path, each one a little
+     * further back, a little narrower and a good deal fainter than the one in front.
+     * A single dash cannot do this: uniform opacity between two round caps is a pill,
+     * which is what a bright dash on a dark ground actually looks like. Opacity has to
+     * fall off along the path, and the only way to vary it along a stroke is to use
+     * more than one stroke.
+     *
+     * Measured rather than assumed. Every beam is a different length, so a fixed dash
+     * period puts two comets on the long ones and half a comet on the short ones. The
+     * period is the path's own length, and the duration comes from a shared speed, so
+     * one comet runs each beam and they all move at the same pace.
+     */
+    function paint(list: Array<{ d: string; hue: string; count: number }>) {
+      beams.replaceChildren();
+      const now = Number(document.timeline.currentTime ?? 0);
+
+      list.forEach((spec, index) => {
+        const empty = spec.count === 0;
+        const group = document.createElementNS(SVG_NS, 'g');
+        group.style.setProperty('--hue', spec.hue);
+
+        const base = document.createElementNS(SVG_NS, 'path');
+        base.setAttribute('d', spec.d);
+        base.setAttribute('class', empty ? 'beam__base beam__base--empty' : 'beam__base');
+        base.style.strokeWidth = String(empty ? 1 : Math.min(1 + spec.count * 0.7, 5));
+        group.appendChild(base);
+        beams.appendChild(group);
+
+        if (empty || still.matches) {
+          return;
+        }
+
+        // getTotalLength needs the path in the document, which is why the group is
+        // appended before the comet is built.
+        const length = base.getTotalLength();
+        const duration = (length / SPEED) * 1000;
+        const phase = index * 0.31 * duration;
+
+        const trail = (node: SVGPathElement, back: number) => {
+          node.setAttribute('d', spec.d);
+          node.style.strokeDasharray = `${SEG} ${Math.max(length - SEG, 1)}`;
+          group.appendChild(node);
+
+          const flow = node.animate([{ strokeDashoffset: length }, { strokeDashoffset: 0 }], {
+            duration,
+            iterations: Infinity,
+            easing: 'linear',
+          });
+
+          /*
+           * Seated on the page's own clock rather than on the moment this path was
+           * built. Every card move repaints the whole band, and an animation that
+           * starts from zero each time would snap five comets back to the start every
+           * time a raider changed columns.
+           *
+           * The offsets are subtracted, so a beam later in the list and a segment
+           * further back along the path both sit earlier in the same cycle.
+           */
+          const at = now - phase - (back / SPEED) * 1000;
+          flow.currentTime = ((at % duration) + duration) % duration;
+        };
+
+        // One blurred stroke at the head. The bloom belongs to the brightest part and
+        // nowhere else, and blurring every segment would cost five times as much for a
+        // softness the taper is already providing.
+        const glow = document.createElementNS(SVG_NS, 'path');
+        glow.setAttribute('class', 'beam__glow');
+        trail(glow, 0);
+
+        for (let i = 0; i < TAPER; i += 1) {
+          const node = document.createElementNS(SVG_NS, 'path');
+          node.setAttribute('class', 'beam__seg');
+          const fade = 1 - i / TAPER;
+          node.style.strokeWidth = String(2.1 * fade + 0.5);
+          node.style.opacity = String(Math.pow(fade, 1.7));
+          trail(node, i * STEP);
+        }
+      });
+    }
+
+    /** One card per column in the tab order, so Tab crosses columns instead of raiders. */
+    function roveTabIndex() {
+      for (const column of COLUMN_ORDER) {
+        const inColumn = [...listEl(column).querySelectorAll<HTMLElement>('[data-card]')];
+        const stop = inColumn.find((card) => card.tabIndex === 0) ?? inColumn[0];
+        for (const card of inColumn) {
+          card.tabIndex = card === stop ? 0 : -1;
+        }
+      }
+    }
+
+    function apply(
+      id: string,
+      to: Column,
+      index?: number,
+      from?: { card: HTMLElement; rect: DOMRect },
+    ) {
+      const before = positions();
+      state = move(state, id, to, index);
+      reconcile();
+      play(before, from);
+    }
+
+    // ------------------------------------------------------------------ keyboard
+
+    let held: string | null = null;
+    /** Where the held raider was picked up from, so Escape can put them back. */
+    let heldFrom: { column: Column; index: number } | null = null;
+
+    function describe(id: string) {
+      const column = COLUMN_ORDER.find((c) => state.columns[c].includes(id))!;
+      const at = state.columns[column].indexOf(id) + 1;
+      return `${COLUMN_LABELS[column]}, ${at} of ${state.columns[column].length}`;
+    }
+
+    function hold(id: string) {
+      const column = COLUMN_ORDER.find((c) => state.columns[c].includes(id))!;
+      held = id;
+      heldFrom = { column, index: state.columns[column].indexOf(id) };
+      cardEl(id).setAttribute('aria-pressed', 'true');
+      announce(`${nameOf(id)} held. ${describe(id)}. Arrow keys move, Enter to place.`);
+    }
+
+    function release(id: string, text: string) {
+      held = null;
+      heldFrom = null;
+      cardEl(id).setAttribute('aria-pressed', 'false');
+      announce(text);
+    }
+
+    root.addEventListener('keydown', (event) => {
+      const card = (event.target as HTMLElement).closest<HTMLElement>('[data-card]');
+      if (!card) {
+        return;
+      }
+      const id = card.dataset.card!;
+      const column = COLUMN_ORDER.find((c) => state.columns[c].includes(id))!;
+      const index = state.columns[column].indexOf(id);
+
+      if (event.key === 'Enter' || event.key === ' ') {
+        event.preventDefault();
+        if (held === id) {
+          release(id, `${nameOf(id)} placed in ${COLUMN_LABELS[column]}.`);
+        } else {
+          if (held) {
+            release(held, '');
+          }
+          hold(id);
+        }
+        return;
+      }
+
+      if (event.key === 'Escape' && held === id && heldFrom) {
+        event.preventDefault();
+        const home = heldFrom;
+        apply(id, home.column, home.index);
+        release(id, `${nameOf(id)} returned to ${COLUMN_LABELS[home.column]}.`);
+        return;
+      }
+
+      const step = { ArrowLeft: -1, ArrowRight: 1, ArrowUp: -1, ArrowDown: 1 }[event.key];
+      if (step === undefined) {
+        return;
+      }
+      event.preventDefault();
+      const sideways = event.key === 'ArrowLeft' || event.key === 'ArrowRight';
+
+      // Holding a card turns the arrows into the move itself. Let go and they are back
+      // to moving focus, which is the only way to reach a raider without a pointer.
+      if (held === id) {
+        if (sideways) {
+          const to =
+            COLUMN_ORDER[
+              Math.min(COLUMN_ORDER.length - 1, Math.max(0, COLUMN_ORDER.indexOf(column) + step))
+            ]!;
+          if (to !== column) {
+            apply(id, to);
+            announce(`${nameOf(id)} to ${describe(id)}.`);
+          }
+        } else {
+          const to = index + step;
+          if (to >= 0 && to < state.columns[column].length) {
+            apply(id, column, to);
+            announce(`${nameOf(id)} to ${describe(id)}.`);
+          }
+        }
+        return;
+      }
+
+      const target = sideways
+        ? nextColumnCard(column, step, index)
+        : listEl(column).querySelectorAll<HTMLElement>('[data-card]')[index + step];
+      target?.focus();
+    });
+
+    function nextColumnCard(from: Column, step: number, index: number): HTMLElement | undefined {
+      let at = COLUMN_ORDER.indexOf(from) + step;
+      while (at >= 0 && at < COLUMN_ORDER.length) {
+        const inColumn = listEl(COLUMN_ORDER[at]!).querySelectorAll<HTMLElement>('[data-card]');
+        if (inColumn.length > 0) {
+          return inColumn[Math.min(index, inColumn.length - 1)];
+        }
+        at += step;
+      }
+      return undefined;
+    }
+
+    // ------------------------------------------------------------------- pointer
+
+    interface Drag {
+      id: string;
+      card: HTMLElement;
+      proxy: HTMLElement | null;
+      pointerId: number;
+      offsetX: number;
+      offsetY: number;
+      started: boolean;
+      fromX: number;
+      fromY: number;
+    }
+
+    let drag: Drag | null = null;
+
+    root.addEventListener('pointerdown', (event) => {
+      if (event.button !== 0) {
+        return;
+      }
+      const card = (event.target as HTMLElement).closest<HTMLElement>('[data-card]');
+      if (!card) {
+        return;
+      }
+      const rect = card.getBoundingClientRect();
+      drag = {
+        id: card.dataset.card!,
+        card,
+        proxy: null,
+        pointerId: event.pointerId,
+        offsetX: event.clientX - rect.left,
+        offsetY: event.clientY - rect.top,
+        started: false,
+        fromX: event.clientX,
+        fromY: event.clientY,
+      };
+      card.setPointerCapture(event.pointerId);
+    });
+
+    root.addEventListener('pointermove', (event) => {
+      if (!drag || event.pointerId !== drag.pointerId) {
+        return;
+      }
+
+      if (!drag.started) {
+        const moved = Math.abs(event.clientX - drag.fromX) + Math.abs(event.clientY - drag.fromY);
+        if (moved < DRAG_THRESHOLD) {
+          return;
+        }
+        drag.started = true;
+        if (held) {
+          release(held, '');
+        }
+
+        const rect = drag.card.getBoundingClientRect();
+        const proxy = drag.card.cloneNode(true) as HTMLElement;
+        proxy.classList.add('card--proxy');
+        proxy.removeAttribute('data-card');
+        proxy.removeAttribute('id');
+        proxy.style.width = `${rect.width}px`;
+        // Fixed, so no column's overflow can clip the raider being carried over it.
+        proxy.style.position = 'fixed';
+        root.appendChild(proxy);
+        drag.proxy = proxy;
+        drag.card.classList.add('card--ghost');
+
+        // The columns this raider said they can fill, lit in their own colours. It is
+        // information, never a restriction: every column takes every raider.
+        markDeclared(drag.id, true);
+      }
+
+      drag.proxy!.style.left = `${event.clientX - drag.offsetX}px`;
+      drag.proxy!.style.top = `${event.clientY - drag.offsetY}px`;
+
+      const over = columnUnder(event.clientX, event.clientY);
+      for (const column of COLUMN_ORDER) {
+        columnEl(column).classList.toggle('col--over', column === over);
+      }
+    });
+
+    function columnUnder(x: number, y: number): Column | null {
+      for (const column of COLUMN_ORDER) {
+        const rect = columnEl(column).getBoundingClientRect();
+        if (x >= rect.left && x <= rect.right && y >= rect.top && y <= rect.bottom) {
+          return column;
+        }
+      }
+      return null;
+    }
+
+    /** Which columns match what this raider said they can play. Informational. */
+    function markDeclared(id: string, on: boolean) {
+      const card = cardEl(id);
+      const declared = (card.dataset.roles ?? '').split(',').filter(Boolean);
+      for (const column of COLUMN_ORDER) {
+        columnEl(column).classList.toggle('col--declared', on && declared.includes(column));
+      }
+    }
+
+    /** Where in a column a drop at this height lands, so a card goes where it looks. */
+    function indexAt(column: Column, y: number): number {
+      const items = [...listEl(column).querySelectorAll<HTMLElement>('[data-card]')];
+      for (let i = 0; i < items.length; i += 1) {
+        const rect = items[i]!.getBoundingClientRect();
+        if (y < rect.top + rect.height / 2) {
+          return i;
+        }
+      }
+      return items.length;
+    }
+
+    function endDrag(event: PointerEvent) {
+      if (!drag || event.pointerId !== drag.pointerId) {
+        return;
+      }
+      const current = drag;
+      drag = null;
+
+      if (!current.started || !current.proxy) {
+        return;
+      }
+
+      const proxyRect = current.proxy.getBoundingClientRect();
+      current.proxy.remove();
+      current.card.classList.remove('card--ghost');
+      markDeclared(current.id, false);
+      for (const column of COLUMN_ORDER) {
+        columnEl(column).classList.remove('col--over');
+      }
+
+      const to = columnUnder(event.clientX, event.clientY);
+      if (!to) {
+        return;
+      }
+
+      // The card lands from where the pointer left it, not from the gap it came out of.
+      apply(current.id, to, indexAt(to, event.clientY), {
+        card: current.card,
+        rect: proxyRect,
+      });
+      announce(`${nameOf(current.id)} to ${describe(current.id)}.`);
+    }
+
+    root.addEventListener('pointerup', endDrag);
+    root.addEventListener('pointercancel', endDrag);
+
+    // --------------------------------------------------------------------- save
+
+    saveButton.addEventListener('click', async () => {
+      saveButton.disabled = true;
+      message.textContent = 'Saving...';
+      delete message.dataset.tone;
+
+      // The board as it is right now, held apart from the live one. A raid lead who
+      // carries on rearranging while the request is in flight has made changes this save
+      // does not include, and taking `state` at the end would mark them saved.
+      const sent = state;
+
+      const body = new FormData();
+      body.set('name', root.dataset.comp!);
+      body.set('slots', JSON.stringify(toSave(sent)));
+
+      try {
+        // Form data rather than a JSON body, which is what keeps Astro's origin check
+        // covering this write like every other one in the repo.
+        const response = await fetch(`/events/${root.dataset.event}/comp-save`, {
+          method: 'POST',
+          body,
+        });
+        const answer = (await response.json()) as { message?: string };
+
+        if (!response.ok) {
+          message.textContent = answer.message ?? 'That board could not be saved.';
+          message.dataset.tone = 'bad';
+          saveButton.disabled = false;
+          return;
+        }
+
+        // What came back is what went up: the service numbers the slots from the order
+        // it was sent and changes nothing else. Taking that board as the new baseline is
+        // the whole of the reconcile, and anything dragged since stays unsaved.
+        saved = sent;
+        message.textContent = 'Saved.';
+        message.dataset.tone = 'good';
+        reconcile();
+      } catch {
+        message.textContent = 'Raider Mate is not answering right now.';
+        message.dataset.tone = 'bad';
+        saveButton.disabled = false;
+      }
+    });
+
+    addEventListener('beforeunload', (event) => {
+      if (differs(state, saved)) {
+        event.preventDefault();
+      }
+    });
+
+    // The beams are geometry, so they are wrong the moment the board reflows.
+    new ResizeObserver(drawBeams).observe(board);
+
+    heckle(root);
+
+    reconcile();
+    root.classList.add('builder--live');
+  }
+
+  /**
+   * The marker says something every so often.
+   *
+   * Nothing on the board depends on this and nothing reads it but a person with the
+   * page open, so it is the first thing to go quiet: it stops entirely while the tab is
+   * in the background, and the first line waits a few seconds rather than greeting a
+   * raid lead who came here to move two people and leave.
+   */
+  function heckle(root: HTMLElement) {
+    const bubble = root.querySelector<HTMLElement>('[data-quote]')!;
+
+    let last = -1;
+    let timer: number | undefined;
+
+    const next = () => {
+      if (BOSS_QUOTES.length < 2) {
+        return BOSS_QUOTES[0]!;
+      }
+      let pick = last;
+      while (pick === last) {
+        pick = Math.floor(Math.random() * BOSS_QUOTES.length);
+      }
+      last = pick;
+      return BOSS_QUOTES[pick]!;
+    };
+
+    const speak = () => {
+      bubble.textContent = next();
+      bubble.classList.add('quote--on');
+
+      timer = window.setTimeout(() => {
+        bubble.classList.remove('quote--on');
+        timer = window.setTimeout(speak, QUOTE_EVERY - QUOTE_HELD);
+      }, QUOTE_HELD);
+    };
+
+    const stop = () => {
+      window.clearTimeout(timer);
+      timer = undefined;
+      bubble.classList.remove('quote--on');
+    };
+
+    document.addEventListener('visibilitychange', () => {
+      if (document.hidden) {
+        stop();
+      } else if (timer === undefined) {
+        timer = window.setTimeout(speak, QUOTE_OPENING);
+      }
+    });
+
+    timer = window.setTimeout(speak, QUOTE_OPENING);
+  }
+
+  for (const root of document.querySelectorAll<HTMLElement>('[data-builder]')) {
+    setUp(root);
+  }
+</script>
+
+<style>
+  /* --------------------------------------------------------------------- bar */
+
+  .bar {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.75rem 1rem;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 1.25rem;
+  }
+
+  .bar__count {
+    color: var(--text-secondary);
+    font-size: var(--fs-sm);
+    font-variant-numeric: tabular-nums;
+  }
+
+  .bar__count span:not(.bar__sep) {
+    color: var(--text-primary);
+    font-weight: 600;
+  }
+
+  .bar__sep {
+    margin: 0 0.5rem;
+    color: var(--text-tertiary);
+  }
+
+  .bar__actions {
+    display: flex;
+    gap: 0.75rem;
+    align-items: center;
+  }
+
+  .bar__msg {
+    color: var(--text-tertiary);
+    font-size: var(--fs-sm);
+  }
+
+  .bar__msg[data-tone='good'] {
+    color: var(--success);
+  }
+
+  .bar__msg[data-tone='bad'] {
+    color: var(--danger);
+  }
+
+  /* ------------------------------------------------------------------- board */
+
+  /* The raid, in formation. Tanks at the front where the marker is, damage behind
+     them, healers at the back. It is the shape a raid actually stands in, so a raid
+     lead reads the board as a pull rather than as four equal lists. */
+  /* The raid, in formation. Tanks at the front where the marker is, damage behind
+     them, healers at the back. It is the shape a raid actually stands in, so a raid
+     lead reads the board as a pull rather than as four equal lists. */
+  .board {
+    position: relative;
+    display: grid;
+    grid-template-areas:
+      'boss boss tray'
+      'tank tank tray'
+      'mdps rdps tray'
+      'healer healer tray'
+      'bench bench tray';
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) 15rem;
+    gap: 0.75rem;
+    align-items: start;
+  }
+
+  /* The marker stands off the front line rather than sitting on it, which also gives
+     the tank beams somewhere to be seen. */
+  .encounter {
+    position: relative;
+    display: flex;
+    grid-area: boss;
+    justify-content: center;
+    padding-bottom: 2.25rem;
+  }
+
+  /* Out of flow, so a long line cannot shove the marker off centre and take every beam
+     with it. Neutral fill: a boss quote is not game data and not an action, so it gets
+     no hue and certainly no amber. */
+  /* Anchored by its bottom edge so a long line grows upward into empty space instead of
+     downward into the beams.
+
+     That edge sits at 1.5rem, which clears the marker's eastern spike: the crosshair
+     ticks are at y=32 of a 64 viewBox drawn at 3.75rem, so the spike's centre line is
+     1.875rem below the top of the band. */
+  .quote {
+    position: absolute;
+    bottom: calc(100% - 1.5rem);
+    left: calc(50% + 2.75rem);
+    max-width: 20rem;
+    margin: 0;
+    padding: 0.5rem 0.75rem;
+    border: 1px solid var(--border);
+    border-radius: var(--radius-lg);
+    background: var(--surface);
+    opacity: 0;
+    visibility: hidden;
+    transform: translateY(3px);
+    transition:
+      opacity var(--dur-2) var(--ease),
+      transform var(--dur-2) var(--ease),
+      visibility var(--dur-2);
+  }
+
+  .quote--on {
+    opacity: 1;
+    visibility: visible;
+    transform: none;
+  }
+
+  /* The tail, pointing back down at whoever is talking. Sits at the bottom corner,
+     which stays the one nearest the marker whatever the quote's length does above it. */
+  .quote::before {
+    content: '';
+    position: absolute;
+    bottom: 0.55rem;
+    left: -5px;
+    width: 8px;
+    height: 8px;
+    border-left: 1px solid var(--border);
+    border-bottom: 1px solid var(--border);
+    background: var(--surface);
+    rotate: 45deg;
+  }
+
+  .quote {
+    color: var(--text-secondary);
+    font-size: var(--fs-sm);
+    font-style: italic;
+    line-height: 1.45;
+  }
+
+  @media (max-width: 52rem) {
+    .quote {
+      bottom: calc(100% - 1.2rem);
+      left: 50%;
+      max-width: min(20rem, 88%);
+      translate: -50% 0;
+    }
+
+    .quote::before {
+      display: none;
+    }
+  }
+
+  /* Over the columns rather than behind them, because the formation stacks and a beam
+     from the back line has to cross the front to reach the marker. Screen blending
+     turns the strokes into light on a dark ground, so they pass over a card without
+     taking anything away from the name on it. */
+  .beams {
+    position: absolute;
+    inset: 0;
+    z-index: 2;
+    width: 100%;
+    height: 100%;
+    overflow: visible;
+    mix-blend-mode: screen;
+    pointer-events: none;
+  }
+
+  /* Global, and it has to be: these paths are built by the script, so they never carry
+     the scoping attribute Astro puts on markup it rendered itself. Scoped, every rule
+     here silently misses and the browser falls back to a black fill. */
+  .beams :global(.beam__base) {
+    fill: none;
+    stroke: var(--hue);
+    stroke-linecap: round;
+    opacity: 0.14;
+  }
+
+  /* Nobody in this role, so the line behind the pulse is broken rather than solid.
+     A gap in the comp looks like a gap. */
+  .beams :global(.beam__base--empty) {
+    stroke-dasharray: 3 7;
+    opacity: 0.3;
+  }
+
+  /* The comet. Widths, opacities, dash lengths and timing are all set per segment by
+     the script, which is the only place that knows how long each path actually is. */
+  .beams :global(.beam__seg),
+  .beams :global(.beam__glow) {
+    fill: none;
+    stroke: var(--hue);
+    stroke-linecap: round;
+  }
+
+  /* The bloom, riding the head. Screen blending on the container makes this add light
+     to the dark ground rather than paint a grey smear over it. */
+  .beams :global(.beam__glow) {
+    stroke-width: 9;
+    opacity: 0.4;
+    filter: blur(5px);
+  }
+
+  /* Nothing travels, so the script builds no comet at all: the still base line already
+     says which roles are filled. */
+  @media (prefers-reduced-motion: reduce) {
+    .beams :global(.beam__base) {
+      opacity: 0.4;
+    }
+  }
+
+  .col {
+    display: flex;
+    flex-direction: column;
+    min-height: 8rem;
+    padding: 0.75rem;
+    border: 1px solid var(--border);
+    border-radius: var(--radius-xl);
+    background: var(--surface);
+    transition:
+      background-color var(--dur-2) var(--ease),
+      border-color var(--dur-2) var(--ease);
+  }
+
+  /* The columns this raider said they can fill. Their own role colour, because it
+     encodes a role; low enough to read as a hint rather than an instruction. Every
+     column still takes every raider. */
+  .col--declared {
+    border-color: color-mix(in srgb, var(--hue) 40%, transparent);
+    background: color-mix(in srgb, var(--hue) 6%, var(--surface));
+  }
+
+  /* Where the raider will land. Amber, because during a drag this is the only "where
+     you are" on the screen. */
+  .col--over {
+    border-color: var(--accent);
+    background: color-mix(in srgb, var(--accent) 8%, var(--surface));
+  }
+
+  .col__head {
+    display: flex;
+    gap: 0.5rem;
+    align-items: center;
+    margin: 0 0 0.625rem;
+    padding: 0 0.25rem;
+    color: var(--text-tertiary);
+    font-size: var(--fs-xs);
+    font-weight: 560;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+  }
+
+  .col__dot {
+    width: 6px;
+    height: 6px;
+    flex: none;
+    border-radius: var(--radius-full);
+    background: var(--hue);
+  }
+
+  .col__count {
+    margin-left: auto;
+    font-variant-numeric: tabular-nums;
+  }
+
+  .col__list {
+    display: grid;
+    gap: 0.25rem;
+    margin: 0;
+    padding: 0;
+    list-style: none;
+  }
+
+  .col__empty {
+    padding: 0.75rem 0.25rem;
+    color: var(--text-tertiary);
+    font-size: var(--fs-xs);
+    text-align: center;
+  }
+
+  /* A column that runs the width of the formation wraps across it, rather than stacking
+     one name per row down a box wide enough for five. */
+  .col--wide .col__list {
+    grid-template-columns: repeat(auto-fill, minmax(11rem, 1fr));
+  }
+
+  /* The tray follows the raid lead down the board: a raider being placed into ranged
+     should not need a scroll back up to reach the pool. */
+  .col--tray {
+    position: sticky;
+    top: calc(var(--nav-height) + 0.75rem);
+    max-height: calc(100vh - var(--nav-height) - 2rem);
+  }
+
+  .col--tray .col__list {
+    min-height: 0;
+    overflow-y: auto;
+  }
+
+  /* -------------------------------------------------------------------- card */
+
+  .card {
+    display: flex;
+    gap: 0.625rem;
+    align-items: center;
+    width: 100%;
+    padding: 0.5rem 0.625rem;
+    border: 1px solid var(--border-subtle);
+    border-radius: var(--radius-md);
+    background: var(--raised);
+    color: var(--text-primary);
+    font: inherit;
+    text-align: left;
+    cursor: grab;
+    touch-action: none;
+    transition:
+      background-color var(--dur-1) var(--ease),
+      border-color var(--dur-1) var(--ease);
+  }
+
+  .card:hover {
+    background: var(--hover);
+    border-color: var(--border);
+  }
+
+  .card:focus-visible {
+    border-color: var(--accent);
+    box-shadow: var(--ring);
+    outline: none;
+  }
+
+  /* Held by the keyboard: the same lifted state a pointer drag gives, so both ways of
+     moving a raider look like the same act. */
+  .card[aria-pressed='true'] {
+    border-color: var(--accent);
+    background: color-mix(in srgb, var(--accent) 12%, var(--raised));
+    cursor: grabbing;
+  }
+
+  .card__mark {
+    width: 3px;
+    height: 2.4em;
+    flex: none;
+    border-radius: var(--radius-full);
+    background: var(--class);
+  }
+
+  .card__body {
+    display: grid;
+    gap: 0.15rem;
+    min-width: 0;
+    flex: 1;
+  }
+
+  .card__name {
+    display: block;
+    overflow: hidden;
+    font-size: var(--fs-sm);
+    font-weight: 560;
+    line-height: 1.35;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .card__sub {
+    display: flex;
+    gap: 0.5rem;
+    align-items: baseline;
+    color: var(--text-tertiary);
+    font-size: var(--fs-xs);
+    line-height: 1.35;
+    white-space: nowrap;
+  }
+
+  /* Takes the squeeze, so a long spec truncates instead of running into the figure
+     beside it. "Unholy Death Knight" is wider than a comp column at four across. */
+  .card__spec {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  .card__ilvl {
+    margin-left: auto;
+    font-variant-numeric: tabular-nums;
+  }
+
+  .card__status {
+    width: 6px;
+    height: 6px;
+    flex: none;
+    border-radius: var(--radius-full);
+    background: var(--status);
+  }
+
+  /* The gap the raider came out of, kept so the column does not close up under the
+     pointer and move every other card while one is being carried. */
+  .card--ghost {
+    opacity: 0.25;
+  }
+
+  .card--proxy {
+    z-index: 10;
+    box-shadow: var(--shadow-overlay);
+    pointer-events: none;
+    cursor: grabbing;
+    rotate: -1.5deg;
+    border-color: var(--border-strong);
+    background: var(--hover);
+  }
+
+  /* ---------------------------------------------------------------- responsive */
+
+  @media (max-width: 68rem) {
+    .board {
+      grid-template-areas:
+        'boss boss'
+        'tank tank'
+        'mdps rdps'
+        'healer healer'
+        'bench bench'
+        'tray tray';
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+
+    .col--tray {
+      position: static;
+      max-height: none;
+    }
+  }
+
+  @media (max-width: 40rem) {
+    .board {
+      grid-template-areas: 'boss' 'tank' 'mdps' 'rdps' 'healer' 'bench' 'tray';
+      grid-template-columns: minmax(0, 1fr);
+    }
+
+    /* One column wide leaves no lane to travel in, so every beam would be back over the
+       cards. The marker still says what the fight is. */
+    .beams {
+      display: none;
+    }
+
+    .encounter {
+      padding-bottom: 1rem;
+    }
+  }
+</style>

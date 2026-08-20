@@ -1,26 +1,12 @@
 ---
-import type { Event, RaidDifficulty } from '../lib/service-types';
+import { DIFFICULTY_HUES, DIFFICULTY_LABELS } from '../lib/difficulty';
+import type { Event } from '../lib/service-types';
 
 interface Props {
   event: Event;
 }
 
 const { event } = Astro.props;
-
-const DIFFICULTY_LABELS: Record<RaidDifficulty, string> = {
-  NORMAL: 'Normal',
-  HEROIC: 'Heroic',
-  MYTHIC: 'Mythic',
-};
-
-// Difficulty is what a raid lead sorts by, so difficulty is what gets the colour. The
-// kind of event stays neutral: Normal has no hue because it is the baseline, not a
-// warning.
-const DIFFICULTY_HUES: Record<RaidDifficulty, string | null> = {
-  NORMAL: null,
-  HEROIC: 'var(--info)',
-  MYTHIC: 'var(--role-rdps)',
-};
 
 const hue = event.difficulty ? DIFFICULTY_HUES[event.difficulty] : null;
 ---

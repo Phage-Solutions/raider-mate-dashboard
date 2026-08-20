@@ -492,6 +492,17 @@ tbody tr:hover {
   color: var(--text-secondary);
 }
 
+/* Read aloud, never drawn: a table's action column heading, a status word behind a
+   coloured dot, the live region the comp builder narrates a move into. */
+.visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
 .notice {
   display: flex;
   gap: 0.625rem;

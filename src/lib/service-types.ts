@@ -133,6 +133,26 @@ export interface Board extends Linked {
   advisories?: Advisory[];
 }
 
+/**
+ * One seat in a hand-built board. `slot_index` is deliberately absent: the service
+ * derives it from the submitted order, numbering each `is_bench` partition from zero,
+ * so sending one would be this repo guessing at a value it does not own.
+ *
+ * A role is required even on a benched raider. The service rejects a role-less slot,
+ * and it rejects the same character twice; those are the only two rules on the wire,
+ * and nothing else about the board is validated anywhere.
+ */
+export interface SavedSlot {
+  character_id: string;
+  role: Role;
+  is_bench: boolean;
+}
+
+/** The body of a whole-board save. Never a partial board, never a per-slot patch. */
+export interface SaveComp {
+  slots: SavedSlot[];
+}
+
 export interface GuildSettings extends Linked {
   events_channel_id?: string;
   timezone?: string;

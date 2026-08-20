@@ -1,0 +1,64 @@
+---
+import { ROLE_HUES } from '../lib/roles';
+import type { Advisory } from '../lib/service-types';
+
+interface Props {
+  advisories: Advisory[] | undefined;
+}
+
+const { advisories } = Astro.props;
+---
+
+{
+  /*
+   * What the assigner noticed, on both the event view and the builder. Information, and
+   * only ever information: "HEALER: 3, suggestion for 20 raiders is 4" is what a raid
+   * lead wants to know before pulling, and it is never an error, never a correction, and
+   * never a reason to stop a save.
+   */
+  advisories && advisories.length > 0 && (
+    <ul class="advisories">
+      {advisories.map((advisory) => (
+        <li>
+          {advisory.role && (
+            <span
+              class="advisories__dot"
+              style={`background: ${ROLE_HUES[advisory.role]}`}
+              aria-hidden="true"
+            />
+          )}
+          {advisory.role ? `${advisory.role}: ` : ''}
+          {advisory.message}
+        </li>
+      ))}
+    </ul>
+  )
+}
+
+<style>
+  .advisories {
+    display: grid;
+    gap: 0.375rem;
+    margin: 0 0 1.25rem;
+    padding: 0.75rem 0.875rem;
+    border: 1px solid var(--border-subtle);
+    border-radius: var(--radius-lg);
+    background: var(--raised);
+    color: var(--text-secondary);
+    font-size: var(--fs-sm);
+    list-style: none;
+  }
+
+  .advisories li {
+    display: flex;
+    gap: 0.5rem;
+    align-items: baseline;
+  }
+
+  .advisories__dot {
+    width: 6px;
+    height: 6px;
+    flex: none;
+    border-radius: var(--radius-full);
+  }
+</style>

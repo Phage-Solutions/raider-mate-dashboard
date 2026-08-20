@@ -1,0 +1,177 @@
+---
+import { DIFFICULTY_HUES, DIFFICULTY_LABELS } from '../lib/difficulty';
+import type { RaidDifficulty } from '../lib/service-types';
+
+interface Props {
+  difficulty: RaidDifficulty | undefined;
+  title: string;
+}
+
+const { difficulty, title } = Astro.props;
+
+/*
+ * The thing the comp is pointed at.
+ *
+ * A raid marker, not a monster. Every player already reads a diamond in a reticle as
+ * "this is the target", it is the vocabulary the game itself uses to say exactly that,
+ * and it is the one mark that cannot be misread as a face. An illustrated boss would
+ * also be the only drawn thing on a surface made entirely of strokes and hairlines.
+ *
+ * Its colour is the difficulty, which is already a data channel here: Heroic blue,
+ * Mythic purple, Normal neutral. It is not decoration and it is never amber.
+ */
+const hue = difficulty ? DIFFICULTY_HUES[difficulty] : null;
+const label = difficulty ? `${DIFFICULTY_LABELS[difficulty]} ${title}` : title;
+---
+
+<div class="sigil" style={hue ? `--sigil: ${hue}` : undefined} data-sigil>
+  <svg viewBox="0 0 64 64" aria-hidden="true" focusable="false">
+    <!-- Reticle. Two counter-turning rings, one segmented and one ticked, so the mark
+         has motion without anything on it actually moving position. -->
+    <circle class="sigil__ring" cx="32" cy="32" r="24"></circle>
+    <circle class="sigil__ring sigil__ring--inner" cx="32" cy="32" r="19"></circle>
+
+    <!-- Crosshairs, clipped short of the centre so they frame rather than cross out. -->
+    <g class="sigil__ticks">
+      <path d="M32 2 L32 9"></path>
+      <path d="M32 55 L32 62"></path>
+      <path d="M2 32 L9 32"></path>
+      <path d="M55 32 L62 32"></path>
+    </g>
+
+    <!-- The target itself. Fills in as raiders are seated. -->
+    <circle class="sigil__halo" cx="32" cy="32" r="6"></circle>
+    <path class="sigil__mark" d="M32 19 L45 32 L32 45 L19 32 Z"></path>
+    <circle class="sigil__core" cx="32" cy="32" r="3.5"></circle>
+  </svg>
+
+  <span class="visually-hidden">{label}</span>
+</div>
+
+<style>
+  .sigil {
+    --sigil: var(--text-tertiary);
+
+    display: grid;
+    place-items: center;
+    width: 3.75rem;
+    height: 3.75rem;
+    color: var(--sigil);
+  }
+
+  .sigil svg {
+    width: 100%;
+    height: 100%;
+    overflow: visible;
+    fill: none;
+    stroke: currentcolor;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+  }
+
+  .sigil__ring {
+    stroke-width: 1.25;
+    stroke-dasharray: 18 10;
+    opacity: 0.45;
+    transform-origin: 32px 32px;
+    animation: sigil-turn 48s linear infinite;
+  }
+
+  .sigil__ring--inner {
+    stroke-dasharray: 3 8;
+    opacity: 0.3;
+    animation-duration: 32s;
+    animation-direction: reverse;
+  }
+
+  .sigil__ticks path {
+    stroke-width: 1.5;
+    opacity: 0.5;
+  }
+
+  .sigil__mark {
+    stroke-width: 1.75;
+    fill: color-mix(in srgb, currentcolor 16%, transparent);
+    transform-origin: 32px 32px;
+    transition:
+      fill var(--dur-3) var(--ease),
+      transform var(--dur-3) var(--ease);
+  }
+
+  .sigil__core {
+    fill: currentcolor;
+    stroke: none;
+    opacity: 0.9;
+    transform-origin: 32px 32px;
+    transition:
+      opacity var(--dur-3) var(--ease),
+      transform var(--dur-3) var(--ease);
+    /* On the beams' own 3.2s cycle, so the marker answers what is arriving at it
+       rather than keeping a second clock of its own. */
+    animation: sigil-charge 3.2s ease-in-out infinite;
+  }
+
+  /* The bloom the beams are feeding. It is the one glow on this surface that is not a
+     focus ring, and it is here because the beams converge on this point. */
+  .sigil__halo {
+    fill: currentcolor;
+    stroke: none;
+    opacity: 0.22;
+    filter: blur(6px);
+    transform-origin: 32px 32px;
+    animation: sigil-charge 3.2s ease-in-out infinite;
+    transition: opacity var(--dur-3) var(--ease);
+  }
+
+  @keyframes sigil-charge {
+    0%,
+    100% {
+      transform: scale(1);
+    }
+
+    55% {
+      transform: scale(1.18);
+    }
+  }
+
+  /* Nothing is seated, so nothing is aimed at anything. The mark shrinks back to an
+     outline and the whole reticle drops to a hairline. */
+  .sigil--empty {
+    color: var(--text-tertiary);
+    opacity: 0.5;
+  }
+
+  .sigil--empty .sigil__mark {
+    fill: transparent;
+    transform: scale(0.82);
+  }
+
+  .sigil--empty .sigil__core {
+    opacity: 0;
+    transform: scale(0.4);
+  }
+
+  /* Nothing is feeding it, so it is not lit and it is not breathing. */
+  .sigil--empty .sigil__core,
+  .sigil--empty .sigil__halo {
+    animation: none;
+  }
+
+  .sigil--empty .sigil__halo {
+    opacity: 0;
+  }
+
+  @keyframes sigil-turn {
+    to {
+      transform: rotate(360deg);
+    }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .sigil__ring,
+    .sigil__core,
+    .sigil__halo {
+      animation: none;
+    }
+  }
+</style>

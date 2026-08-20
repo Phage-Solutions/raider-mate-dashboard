@@ -1,0 +1,273 @@
+---
+import CompAdvisories from '../../../../components/comp-advisories.astro';
+import CompBuilder from '../../../../islands/comp-builder.astro';
+import DashboardLayout from '../../../../layouts/dashboard-layout.astro';
+import { cardsFor, stateFrom } from '../../../../lib/comp-board';
+import { fetchGuildTimezone, formatEventTime } from '../../../../lib/guild-time';
+import { getLink, hasLink } from '../../../../lib/links';
+import { ServiceError } from '../../../../lib/service-error';
+import { noticeFor } from '../../../../lib/service-notice';
+import type { Board, CompInfo, Event, Signup } from '../../../../lib/service-types';
+
+export const prerender = false;
+
+const { session, actor, client } = Astro.locals;
+
+if (!session!.selectedGuildId) {
+  return Astro.redirect('/guild');
+}
+
+const guildId = session!.selectedGuildId;
+const eventId = Astro.params.id!;
+const compName = Astro.params.name!;
+const backToEvent = `/events/${eventId}`;
+
+let event: Event | null = null;
+let board: Board | null = null;
+let signups: Signup[] = [];
+let timezone: string | null = null;
+let failure: string | null = null;
+let canRename = false;
+
+// What a write route sent us back with. Codes rather than the service's own words, for
+// the same reason the event page uses them: a message round-tripped through a query
+// string is a message anyone can put on screen.
+const NOTICES: Record<string, string> = {
+  taken: 'This event already has a comp with that name.',
+  badname: 'A comp needs a name.',
+  denied: 'That is not yours to change.',
+  gone: 'That comp is no longer on this event.',
+  failed: 'Raider Mate had a problem with that.',
+  unreachable: 'Raider Mate is not answering right now.',
+};
+const notice = NOTICES[Astro.url.searchParams.get('notice') ?? ''];
+
+try {
+  event = await client.get<Event>(actor, `/api/events/${eventId}`);
+
+  const comps = (await client.follow<CompInfo[]>(actor, getLink(event, 'comps')!)).body;
+  const comp = comps.find((entry) => entry.name === compName);
+  if (!comp) {
+    return Astro.redirect(`${backToEvent}?notice=gone`);
+  }
+
+  /*
+   * The whole authorization decision, and it is one link lookup. The service sends
+   * `save` only for a raid lead on a manual comp, so its absence covers both "you may
+   * not edit comps here" and "this comp belongs to the assigner". Nothing in this repo
+   * re-derives either, and neither answer is discovered by trying the write.
+   *
+   * Enforced here, in frontmatter, before a single row renders.
+   */
+  if (!getLink(comp, 'save')) {
+    return Astro.redirect(`${backToEvent}?notice=${comp.mode === 'AUTO' ? 'auto' : 'denied'}`);
+  }
+
+  canRename = hasLink(comp, 'rename');
+  board = (await client.follow<Board>(actor, getLink(comp, 'self')!)).body;
+  signups = (await client.follow<Signup[]>(actor, getLink(event, 'signups')!)).body;
+  timezone = await fetchGuildTimezone(client, actor, guildId);
+} catch (error) {
+  if (error instanceof ServiceError && error.isNotFound) {
+    Astro.response.status = 404;
+    failure = 'No such event.';
+  } else {
+    failure = noticeFor(error);
+  }
+}
+
+const cards = board ? cardsFor(board, signups) : [];
+const state = board ? stateFrom(board, cards) : null;
+
+/*
+ * The raid has started. Not a gate on anything: the service still offers the save link,
+ * so the board still saves, and the last-minute swap is exactly what a raid lead is
+ * doing here at 20:15. It is worth saying out loud, and nothing more.
+ *
+ * Signups closing is the ordinary case and the event page already reports it.
+ *
+ * "Now" is fixed at render, so a page held open across the start time does not grow the
+ * banner until it is reloaded.
+ */
+const started = event ? new Date(event.starts_at).getTime() <= Date.now() : false;
+---
+
+<DashboardLayout title={compName} titleTransition={`comp-${eventId}-${compName}`}>
+  {
+    event && (
+      <div slot="head" class="head">
+        <a href={backToEvent}>{event.title}</a>
+        <span class="head__time">
+          Starts{' '}
+          <time datetime={event.starts_at}>{formatEventTime(event.starts_at, timezone)}</time>
+        </span>
+      </div>
+    )
+  }
+
+  <div slot="actions" class="actions">
+    {
+      /* Rendered from the comp's own rename link, like every other control here. Folded
+         away because renaming a comp is something you do once, not every raid night. */
+      canRename && (
+        <details class="rename">
+          <summary>Rename</summary>
+          <form method="post" action={`/events/${eventId}/comp-rename`} data-astro-reload>
+            <input type="hidden" name="name" value={compName} />
+            <input
+              type="text"
+              name="new_name"
+              value={compName}
+              required
+              aria-label="Comp name"
+              maxlength="60"
+            />
+            <button class="button" type="submit">
+              Save name
+            </button>
+          </form>
+        </details>
+      )
+    }
+
+    <a class="button button--quiet" href={backToEvent}>Back to event</a>
+  </div>
+
+  {notice && <p class="notice">{notice}</p>}
+  {failure && <p class="notice">{failure}</p>}
+
+  {
+    started && (
+      <p class="started">
+        <span class="started__dot" aria-hidden="true" />
+        This raid has already started. Editing still works, for the swap you are making right now.
+      </p>
+    )
+  }
+
+  <CompAdvisories advisories={board?.advisories} />
+
+  {
+    state && (
+      <CompBuilder
+        eventId={eventId}
+        compName={compName}
+        cards={cards}
+        state={state}
+        difficulty={event?.difficulty}
+        eventTitle={event?.title ?? 'the encounter'}
+      />
+    )
+  }
+
+  <p class="how">
+    Drag a raider to move them. On a keyboard, Enter picks one up, the arrows move them, and Enter
+    puts them down.
+  </p>
+</DashboardLayout>
+
+<style>
+  .head {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.5rem 1rem;
+    align-items: center;
+    color: var(--text-secondary);
+    font-size: var(--fs-sm);
+  }
+
+  .head__time {
+    color: var(--text-tertiary);
+    font-variant-numeric: tabular-nums;
+  }
+
+  /* Warning, not refusal. It takes the warning hue and none of the notice's weight,
+     because nothing here has gone wrong. */
+  .started {
+    display: flex;
+    gap: 0.625rem;
+    align-items: center;
+    margin-bottom: 1.25rem;
+    padding: 0.625rem 1rem;
+    border: 1px solid color-mix(in srgb, var(--warning) 34%, transparent);
+    border-radius: var(--radius-lg);
+    background: color-mix(in srgb, var(--warning) 10%, transparent);
+    font-size: var(--fs-sm);
+  }
+
+  .started__dot {
+    width: 6px;
+    height: 6px;
+    flex: none;
+    border-radius: var(--radius-full);
+    background: var(--warning);
+  }
+
+  .how {
+    margin-top: 1.25rem;
+    color: var(--text-tertiary);
+    font-size: var(--fs-sm);
+  }
+
+  .actions {
+    position: relative;
+    display: flex;
+    gap: 0.5rem;
+    align-items: center;
+  }
+
+  /* Same disclosure the WarcraftLogs control uses on the event page, so a raid lead
+     meets one folded-away editor rather than two different ones. */
+  .rename summary {
+    display: inline-flex;
+    align-items: center;
+    min-height: 32px;
+    padding: 0.4rem 0.875rem;
+    border: 1px solid var(--border);
+    border-radius: var(--radius-md);
+    background: var(--raised);
+    color: var(--text-primary);
+    font-size: var(--fs-sm);
+    font-weight: 600;
+    list-style: none;
+    cursor: pointer;
+    transition:
+      background-color var(--dur-1) var(--ease),
+      border-color var(--dur-1) var(--ease);
+  }
+
+  .rename summary::-webkit-details-marker {
+    display: none;
+  }
+
+  .rename summary:hover {
+    background: var(--hover);
+    border-color: var(--border-strong);
+  }
+
+  .rename summary:focus-visible {
+    border-color: var(--accent);
+    box-shadow: var(--ring);
+    outline: none;
+  }
+
+  /* Out of flow once open, so revealing it does not shove the page title sideways. */
+  .rename form {
+    position: absolute;
+    z-index: 5;
+    top: calc(100% + 0.5rem);
+    right: 0;
+    display: flex;
+    gap: 0.5rem;
+    padding: 0.75rem;
+    border: 1px solid var(--border);
+    border-radius: var(--radius-lg);
+    background: var(--surface);
+    box-shadow: var(--shadow-overlay);
+  }
+
+  .rename input[type='text'] {
+    width: auto;
+    min-width: 14rem;
+  }
+</style>
