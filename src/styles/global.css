@@ -526,6 +526,18 @@ tbody tr:hover {
   flex: none;
 }
 
+/* The few notices that report a write going through rather than a write being refused.
+   Same shape, because it is the same strip in the same place; only the colour differs,
+   and red for "saved" reads as a failure at a glance. */
+.notice--good {
+  border-color: color-mix(in srgb, var(--success) 34%, transparent);
+  background: color-mix(in srgb, var(--success) 11%, transparent);
+}
+
+.notice--good::before {
+  background: var(--success);
+}
+
 /* An empty screen is an invitation to act, not a shrug. */
 .empty {
   display: grid;

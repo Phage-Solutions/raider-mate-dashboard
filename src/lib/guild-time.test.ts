@@ -1,6 +1,11 @@
 import { describe, expect, it } from 'vitest';
 
-import { formatEventTime, formatSignupWindow, guildTimeToInstant } from './guild-time';
+import {
+  formatEventTime,
+  formatSignupWindow,
+  guildTimeToInstant,
+  instantToGuildTime,
+} from './guild-time';
 
 // 20:00 in Berlin on a summer evening, sent by the service as UTC.
 const STARTS_AT = '2026-08-20T18:00:00Z';
@@ -82,5 +87,34 @@ describe('guildTimeToInstant', () => {
     expect(guildTimeToInstant('', 'Europe/Prague')).toBeNull();
     expect(guildTimeToInstant('tomorrow 20:00', 'Europe/Prague')).toBeNull();
     expect(guildTimeToInstant('2026-01-15T20:00', 'Not/AZone')).toBeNull();
+  });
+});
+
+describe('instantToGuildTime', () => {
+  it('renders the guild wall clock in the shape a datetime-local field takes', () => {
+    expect(instantToGuildTime('2026-01-15T19:00:00Z', 'Europe/Prague')).toBe('2026-01-15T20:00');
+    expect(instantToGuildTime('2026-07-15T18:00:00Z', 'Europe/Prague')).toBe('2026-07-15T20:00');
+  });
+
+  it('lands the right side of a DST boundary', () => {
+    expect(instantToGuildTime('2026-03-29T00:59:00Z', 'Europe/Prague')).toBe('2026-03-29T01:59');
+    expect(instantToGuildTime('2026-03-29T01:00:00Z', 'Europe/Prague')).toBe('2026-03-29T03:00');
+  });
+
+  it('reads a guild with no timezone as UTC, the same as the other direction', () => {
+    expect(instantToGuildTime('2026-01-15T20:00:00Z', null)).toBe('2026-01-15T20:00');
+  });
+
+  // The one that matters for the edit form: opening it and saving it untouched has to
+  // leave the raid where it was.
+  it('round trips through guildTimeToInstant', () => {
+    const starts = '2026-08-20T18:00:00.000Z';
+    const typed = instantToGuildTime(starts, 'Europe/Prague');
+    expect(guildTimeToInstant(typed, 'Europe/Prague')?.toISOString()).toBe(starts);
+  });
+
+  it('renders nothing rather than throwing on what it cannot read', () => {
+    expect(instantToGuildTime('soon', 'Europe/Prague')).toBe('');
+    expect(instantToGuildTime('2026-01-15T20:00:00Z', 'Not/AZone')).toBe('');
   });
 });

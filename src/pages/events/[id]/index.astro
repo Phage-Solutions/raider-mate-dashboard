@@ -2,7 +2,13 @@
 import CompAdvisories from '../../../components/comp-advisories.astro';
 import EventChips from '../../../components/event-chips.astro';
 import DashboardLayout from '../../../layouts/dashboard-layout.astro';
-import { fetchGuildTimezone, formatEventTime, formatSignupWindow } from '../../../lib/guild-time';
+import { DIFFICULTY_LABELS } from '../../../lib/difficulty';
+import {
+  fetchGuildTimezone,
+  formatEventTime,
+  formatSignupWindow,
+  instantToGuildTime,
+} from '../../../lib/guild-time';
 import { getLink, hasLink } from '../../../lib/links';
 import { ROLE_HUES, ROLE_LABELS, ROLE_ORDER } from '../../../lib/roles';
 import { noticeFor } from '../../../lib/service-notice';
@@ -42,8 +48,15 @@ const NOTICES: Record<string, string> = {
   failed: 'Raider Mate had a problem with that.',
   unreachable: 'Raider Mate is not answering right now.',
   manual: 'That comp is manual. Locking it would throw the board away.',
+  invalid: 'Check the fields. Something in there is not a raid.',
+  backwards: 'Signups would close after the raid starts. Check the two times.',
+  saved: 'Saved. The signup sheet in Discord follows.',
 };
-const notice = NOTICES[Astro.url.searchParams.get('notice') ?? ''];
+const code = Astro.url.searchParams.get('notice') ?? '';
+const notice = NOTICES[code];
+// Every other code above is a refusal. This one is the write going through, and it wears
+// the danger colour otherwise.
+const noticeIsGood = code === 'saved';
 
 let event: Event | null = null;
 let failure: string | null = null;
@@ -142,6 +155,29 @@ function slotName(slot: Assignment): string {
 function reasonFor(board: Board, slot: Assignment): string | undefined {
   return board.mode === 'MANUAL' ? undefined : slot.reason;
 }
+
+const SIZES = [
+  { name: 'tanks', label: 'Tanks' },
+  { name: 'healers', label: 'Healers' },
+  { name: 'max_melee', label: 'Melee' },
+  { name: 'max_ranged', label: 'Ranged' },
+];
+
+/**
+ * One size out of the event's comp template, for prefilling the edit form. Empty when the
+ * template names none, which is the raid asking the assigner to work it out.
+ *
+ * comp_template is typed unknown on purpose: the service owns its shape. This reads the
+ * four keys the form writes and claims nothing about the rest.
+ */
+function templateSize(field: string): number | '' {
+  const template = event?.comp_template;
+  if (typeof template !== 'object' || template === null) {
+    return '';
+  }
+  const value = (template as Record<string, unknown>)[field];
+  return typeof value === 'number' && Number.isFinite(value) ? value : '';
+}
 ---
 
 <DashboardLayout
@@ -177,7 +213,7 @@ function reasonFor(board: Board, slot: Assignment): string | undefined {
     )
   }
 
-  {notice && <p class="notice">{notice}</p>}
+  {notice && <p class:list={['notice', noticeIsGood && 'notice--good']}>{notice}</p>}
   {failure && <p class="notice">{failure}</p>}
 
   {
@@ -225,6 +261,120 @@ function reasonFor(board: Board, slot: Assignment): string | undefined {
           </details>
         )}
       </div>
+    )
+  }
+
+  {
+    /* The event's own edit link and nothing else. A raider never sees this, and a raid
+       lead sees one line until they open it: the page is here to read the comp and the
+       signups, and an edit is the rarer thing. */
+    event && hasLink(event, 'edit') && (
+      <details class="edit">
+        <summary>Edit event</summary>
+        <form method="post" action={`/events/${event.id}/update`} data-astro-reload>
+          <div class="edit__grid">
+            <div class="field">
+              <label for="title">Title</label>
+              <input
+                id="title"
+                name="title"
+                type="text"
+                value={event.title}
+                required
+                autocomplete="off"
+              />
+            </div>
+
+            {/* A dungeon has no raid difficulty, and the service will not take one. */}
+            {event.type === 'RAID' && (
+              <div class="field">
+                <label for="difficulty">Difficulty</label>
+                <select id="difficulty" name="difficulty">
+                  {/* Offered only while there is none. The service has no way to clear a
+                      difficulty once set, so a "Not set" option on an event that has one
+                      would be a control that silently does nothing. */}
+                  {!event.difficulty && (
+                    <option value="" selected>
+                      Not set
+                    </option>
+                  )}
+                  {Object.entries(DIFFICULTY_LABELS).map(([value, label]) => (
+                    <option value={value} selected={event!.difficulty === value}>
+                      {label}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            )}
+
+            <div class="field">
+              <label for="starts_at">Starts</label>
+              <input
+                id="starts_at"
+                name="starts_at"
+                type="datetime-local"
+                value={instantToGuildTime(event.starts_at, timezone)}
+                required
+              />
+            </div>
+
+            <div class="field">
+              <label for="signup_deadline">Signups close</label>
+              <input
+                id="signup_deadline"
+                name="signup_deadline"
+                type="datetime-local"
+                value={instantToGuildTime(event.signup_deadline, timezone)}
+                required
+              />
+            </div>
+
+            <div class="field">
+              <label for="reminder_lead_minutes">Reminder lead</label>
+              <input
+                id="reminder_lead_minutes"
+                name="reminder_lead_minutes"
+                type="number"
+                min="0"
+                max="1440"
+                value={event.reminder_lead_minutes ?? ''}
+              />
+            </div>
+          </div>
+
+          <p class="edit__hint">
+            Times are read in {timezone ?? 'UTC'}. Leave a comp box empty and Raider Mate works that
+            role out when the comp is locked.
+          </p>
+
+          <ul class="edit__sizes">
+            {SIZES.map((size) => (
+              <li class="field">
+                <label for={size.name}>{size.label}</label>
+                <input
+                  id={size.name}
+                  name={size.name}
+                  type="number"
+                  min="0"
+                  max="40"
+                  value={templateSize(size.name)}
+                />
+              </li>
+            ))}
+          </ul>
+
+          <div class="edit__actions">
+            <button class="button" type="submit">
+              Save event
+            </button>
+            {/* The one thing an edit cannot change, said once rather than drawn as a
+                control that would refuse. */}
+            <span class="muted">
+              {event.type === 'RAID' ? 'Raid' : 'Mythic+'} for the life of the event.
+            </span>
+          </div>
+        </form>
+      </details>
     )
   }
 
@@ -411,6 +561,9 @@ function reasonFor(board: Board, slot: Assignment): string | undefined {
                 <thead>
                   <tr>
                     <th scope="col">Raider</th>
+                    <th scope="col" class="num">
+                      Item level
+                    </th>
                     <th scope="col">Status</th>
                     <th scope="col">Note</th>
                     <th scope="col">
@@ -446,6 +599,16 @@ function reasonFor(board: Board, slot: Assignment): string | undefined {
                           </span>
                         </span>
                       </th>
+                      {/* Whole numbers: the fraction the sync stores is precision nobody
+                          picks a raider on. Absent until the Raider.IO worker has been
+                          round, which is a different fact from a low one. */}
+                      <td class="num ilvl">
+                        {signup.character?.ilvl ? (
+                          Math.round(signup.character.ilvl)
+                        ) : (
+                          <span class="dash">&mdash;</span>
+                        )}
+                      </td>
                       <td>
                         <span
                           class="badge badge--hue"
@@ -702,6 +865,89 @@ function reasonFor(board: Board, slot: Assignment): string | undefined {
     box-shadow: var(--ring);
   }
 
+  /* Closed, this is one line on a page whose job is the comp and the signups. Open, it is
+     a form: the same fields the create page asks for, so a raid lead is not learning a
+     second shape of the same event. */
+  .edit {
+    margin-bottom: 1.5rem;
+  }
+
+  .edit summary {
+    display: inline-flex;
+    align-items: center;
+    min-height: 32px;
+    padding: 0.4rem 0.875rem;
+    border: 1px solid var(--border);
+    border-radius: var(--radius-md);
+    background: var(--raised);
+    color: var(--text-primary);
+    font-size: var(--fs-sm);
+    font-weight: 600;
+    list-style: none;
+    cursor: pointer;
+    transition:
+      background-color var(--dur-1) var(--ease),
+      border-color var(--dur-1) var(--ease);
+  }
+
+  .edit summary::-webkit-details-marker {
+    display: none;
+  }
+
+  .edit summary:hover {
+    background: var(--hover);
+    border-color: var(--border-strong);
+  }
+
+  .edit form {
+    margin-top: 0.75rem;
+    padding: 1.25rem;
+    border: 1px solid var(--border);
+    border-radius: var(--radius-lg);
+    background: var(--surface);
+  }
+
+  .edit__grid {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0 1.5rem;
+  }
+
+  .edit__grid .field {
+    flex: 1 1 14rem;
+    max-width: 20rem;
+  }
+
+  .edit__hint {
+    max-width: 60ch;
+    margin: 0 0 0.75rem;
+    color: var(--text-tertiary);
+    font-size: var(--fs-sm);
+  }
+
+  .edit__sizes {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.75rem;
+    margin: 0;
+    padding: 0;
+    list-style: none;
+  }
+
+  .edit__sizes .field {
+    width: 6.5rem;
+    max-width: none;
+    margin-bottom: 0;
+  }
+
+  .edit__actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.75rem;
+    align-items: center;
+    margin-top: 1.5rem;
+  }
+
   .head {
     display: flex;
     flex-wrap: wrap;
@@ -939,6 +1185,16 @@ function reasonFor(board: Board, slot: Assignment): string | undefined {
 
     .note {
       max-width: none;
+    }
+
+    /* The header row is gone at this width, so the number carries its own label. */
+    .num {
+      text-align: left;
+    }
+
+    .ilvl::before {
+      content: 'iLvl ';
+      color: var(--text-tertiary);
     }
   }
 </style>

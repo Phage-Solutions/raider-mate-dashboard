@@ -126,6 +126,43 @@ function offsetAt(instant: Date, timeZone: string): number {
 }
 
 /**
+ * The other direction: an instant from the service as the wall clock a `datetime-local`
+ * field wants, `YYYY-MM-DDTHH:mm`, read in the guild's timezone.
+ *
+ * This is what prefills an edit form, so it has to agree with guildTimeToInstant or a
+ * raid lead opening a form and saving it unchanged would move the raid. A guild with no
+ * timezone gets UTC, the same reading that function gives the same field.
+ *
+ * Empty string for a timestamp or a timezone Intl refuses: an empty field a raid lead
+ * has to fill in beats a page that throws on one bad row.
+ */
+export function instantToGuildTime(iso: string, timeZone: string | null): string {
+  const instant = new Date(iso);
+  if (Number.isNaN(instant.getTime())) {
+    return '';
+  }
+
+  try {
+    const parts = new Intl.DateTimeFormat('en-US', {
+      timeZone: timeZone ?? 'UTC',
+      hourCycle: 'h23',
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+      hour: '2-digit',
+      minute: '2-digit',
+    }).formatToParts(instant);
+
+    const field = (type: Intl.DateTimeFormatPartTypes) =>
+      parts.find((part) => part.type === type)?.value ?? '';
+
+    return `${field('year')}-${field('month')}-${field('day')}T${field('hour')}:${field('minute')}`;
+  } catch {
+    return '';
+  }
+}
+
+/**
  * Reads what a raid lead typed into a `datetime-local` field as a moment in the guild's
  * timezone, and returns the instant to send the service. Null when the field is not a
  * time at all, or when the timezone is one Intl refuses.

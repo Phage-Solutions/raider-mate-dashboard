@@ -12,6 +12,27 @@ Sections are `Added`, `Changed`, `Deprecated`, `Removed`, `Fixed`, `Security`.
 
 ## [Unreleased]
 
+## [0.4.0] - 2026-08-20
+
+### Added
+
+- **An event can be edited from its own page.** A raid lead opening an event now gets an
+  Edit panel: title, difficulty, both times, the reminder lead, and the comp sizes. Before
+  this, a raid moved by an hour meant deleting the event and rebuilding it, which threw
+  away every signup on it. Saving redraws the signup sheet in Discord, so raiders reading
+  the channel see the change without being told twice.
+
+  The type of an event stays what it was. A raid does not become a Mythic+ group, and the
+  service will not take the change.
+
+  The redraw needs the raider-mate-service release that queues one for an event edit.
+  Against an older service the edit itself still works and the message goes stale.
+
+- **Signups show item level.** The number a raid lead reads when deciding who sits was on
+  the roster page and in the comp builder but not on the event, which is where the
+  decision is made. A character the roster sync has not reached yet shows a dash rather
+  than a zero.
+
 ## [0.3.2] - 2026-08-20
 
 ### Changed
