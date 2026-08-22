@@ -26,6 +26,9 @@ export function noticeCodeFor(error: unknown): string {
     return 'unreachable';
   }
   if (error instanceof ServiceError) {
+    if (error.isPaymentRequired) {
+      return 'premium';
+    }
     if (error.isForbidden) {
       return 'denied';
     }

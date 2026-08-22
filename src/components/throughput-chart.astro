@@ -1,0 +1,257 @@
+---
+import ChartAxis from './chart-axis.astro';
+import ChartReadout from './chart-readout.astro';
+import ChartScale from './chart-scale.astro';
+import { niceTicks, weekSlots, weekTicks, type Window } from '../lib/week-plot';
+import type { ThroughputWeek } from '../lib/service-types';
+
+interface Props {
+  weeks: ThroughputWeek[];
+  /** The panel's window, so the axis is ninety days whatever the data covers. */
+  window: Window;
+}
+
+const { weeks, window } = Astro.props;
+
+// The plot is drawn in its own coordinates and stretched to whatever width the panel
+// has. Both axes are HTML around it, so a label stays real type at a real size.
+const WIDTH = 1000;
+const HEIGHT = 190;
+
+const slots = weekSlots(
+  weeks.map((week) => week.week),
+  WIDTH,
+  window,
+);
+const grid = weekTicks(window, WIDTH);
+
+// Scaled to the top gridline rather than to the tallest bar, so the tallest bar stops
+// at a labelled number instead of at the ceiling.
+const ticks = niceTicks(Math.max(...weeks.map((week) => week.confirmed), 0));
+const ceiling = ticks[ticks.length - 1] || 1;
+
+// One week's share of the axis, not the gap between the weeks that happen to have data:
+// a guild that raided a fortnight ago and last night should get two ordinary bars with
+// a fortnight between them, rather than two slabs the width of that gap.
+const WEEK_MS = 7 * 24 * 60 * 60 * 1000;
+const windowMs = new Date(window.until).getTime() - new Date(window.since).getTime();
+const weekWidth = windowMs > 0 ? (WEEK_MS / windowMs) * WIDTH : WIDTH;
+const barWidth = Math.max(6, Math.min(34, weekWidth * 0.62));
+
+const bars = weeks.map((week, index) => {
+  const height = (week.confirmed / ceiling) * HEIGHT;
+  // The no-show share sits on top of the bar it came out of: these are people who said
+  // yes and then did not appear, so they are part of the same column, not beside it.
+  const lost = week.confirmed > 0 ? (week.no_show / week.confirmed) * height : 0;
+  const centre = (slots[index]!.x / WIDTH) * 100;
+  return {
+    ...week,
+    label: slots[index]!.label,
+    x: slots[index]!.x - barWidth / 2,
+    y: HEIGHT - height,
+    height,
+    lost,
+    // Percentages, because the readout is HTML over a plot that stretches.
+    centre,
+    topPct: (height / HEIGHT) * 100,
+  };
+});
+
+/** What one bar says when you ask it. Plain sentence, so it doubles as the button's name. */
+function readout(bar: (typeof bars)[number]): string {
+  const raids = `${bar.events} ${bar.events === 1 ? 'raid' : 'raids'}`;
+  const confirmed = `${bar.confirmed} confirmed`;
+  const missing = bar.no_show > 0 ? `, ${bar.no_show} did not appear` : '';
+  return `${bar.label}: ${raids}, ${confirmed}${missing}`;
+}
+---
+
+<figure class="chart">
+  <div class="chart__frame">
+    <div class="chart__plotwrap">
+      <svg
+        class="chart__plot"
+        viewBox={`0 0 ${WIDTH} ${HEIGHT}`}
+        preserveAspectRatio="none"
+        role="img"
+        aria-label={`Raiders confirmed per week over ${weeks.length} weeks, with the share who did not appear marked on each bar.`}
+      >
+        {
+          /* The calendar behind the data. A guild two weeks into using this has two
+          weeks in a ninety-day frame, and without the grid the empty part reads as a
+          broken chart rather than as window it has not filled yet. */
+          grid.map((x) => (
+            <line
+              x1={x}
+              y1="0"
+              x2={x}
+              y2={HEIGHT}
+              class="chart__week"
+              vector-effect="non-scaling-stroke"
+            />
+          ))
+        }
+        {
+          ticks.map((value) => {
+            const y = HEIGHT - (value / ceiling) * HEIGHT;
+            return (
+              <line
+                x1="0"
+                y1={y}
+                x2={WIDTH}
+                y2={y}
+                class={value === 0 ? 'chart__base' : 'chart__rule'}
+                vector-effect="non-scaling-stroke"
+              />
+            );
+          })
+        }
+        {
+          bars.map((bar) => (
+            <>
+              <rect
+                x={bar.x}
+                y={bar.y}
+                width={barWidth}
+                height={Math.max(bar.height, 1)}
+                rx="3"
+                class="chart__bar"
+              />
+              {bar.lost > 0 && (
+                <rect
+                  x={bar.x}
+                  y={bar.y}
+                  width={barWidth}
+                  height={bar.lost}
+                  rx="3"
+                  class="chart__lost"
+                />
+              )}
+            </>
+          ))
+        }
+      </svg>
+      {
+        bars.map((bar) => (
+          <ChartReadout
+            centre={bar.centre}
+            width={(barWidth / WIDTH) * 100}
+            top={bar.topPct}
+            label={readout(bar)}
+          >
+            <span class="tip__week">{bar.label}</span>
+            <span class="tip__line">
+              <span class="tip__swatch tip__swatch--confirmed" />
+              {bar.confirmed} confirmed
+            </span>
+            {bar.no_show > 0 && (
+              <span class="tip__line">
+                <span class="tip__swatch tip__swatch--lost" />
+                {bar.no_show} did not appear
+              </span>
+            )}
+            <span class="tip__raids">
+              {bar.events} {bar.events === 1 ? 'raid' : 'raids'}
+            </span>
+          </ChartReadout>
+        ))
+      }
+    </div>
+    <ChartScale
+      ticks={ticks.map((value) => ({ label: String(value), pct: (value / ceiling) * 100 }))}
+    />
+  </div>
+  <figcaption class="chart__foot">
+    <ChartAxis slots={slots} width={WIDTH} />
+  </figcaption>
+</figure>
+
+<style>
+  .chart {
+    margin: 0;
+  }
+
+  .chart__frame {
+    position: relative;
+  }
+
+  /* The gutter the y labels live in. The plot is inset by it so a bar at x=0 does not
+     sit under its own axis. */
+  .chart__plotwrap {
+    position: relative;
+    margin-left: var(--chart-gutter, 2.5rem);
+  }
+
+  .tip__week {
+    color: var(--text-secondary);
+    font-weight: 560;
+  }
+
+  .tip__line {
+    display: flex;
+    gap: 0.4rem;
+    align-items: center;
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
+  }
+
+  .tip__raids {
+    color: var(--text-tertiary);
+  }
+
+  .tip__swatch {
+    width: 8px;
+    height: 8px;
+    flex: none;
+    border-radius: var(--radius-sm);
+  }
+
+  .tip__swatch--confirmed {
+    background: color-mix(in srgb, var(--success) 72%, transparent);
+  }
+
+  .tip__swatch--lost {
+    background: var(--danger);
+  }
+
+  .chart__plot {
+    display: block;
+    width: 100%;
+    height: 190px;
+  }
+
+  /*
+   * A signup is a state, and this surface already has a colour for it: --success is
+   * confirmed signups on the event view and on the attendance ribbon two panels up.
+   * Grey bars were not restraint, they were the one chart on the page refusing to say
+   * what it was counting.
+   */
+  .chart__bar {
+    fill: color-mix(in srgb, var(--success) 72%, transparent);
+  }
+
+  .chart__lost {
+    fill: var(--danger);
+  }
+
+  .chart__base {
+    stroke: var(--border);
+    stroke-width: 1;
+  }
+
+  .chart__rule {
+    stroke: var(--border-subtle);
+    stroke-width: 1;
+  }
+
+  /* Fainter than the value gridlines. The week grid is context; the numbers are the
+     thing being read. */
+  .chart__week {
+    stroke: color-mix(in srgb, var(--border-subtle) 55%, transparent);
+    stroke-width: 1;
+  }
+
+  .chart__foot {
+    margin-left: var(--chart-gutter, 2.5rem);
+  }
+</style>

@@ -2,27 +2,38 @@
 const current = Astro.url.pathname;
 const session = Astro.locals.session;
 
+// Nothing in the bar is reachable before a guild is picked: every page behind these
+// links is guild-scoped and would bounce straight back to the picker. The raider's name
+// and the way out stay, so the bar is still a bar.
+const chosen = !!session?.selectedGuildId;
+
 // Configuration appears only where the service offered it, which today means raid leads
 // and Discord admins. The answer is the service's, cached on the session, so this repo
 // never decides who is a raid lead. The page still draws every control from links, and
 // the service still refuses the writes regardless of what the nav showed.
-const items = [
-  { href: '/dashboard', label: 'Overview' },
-  { href: '/events', label: 'Events' },
-  { href: '/roster', label: 'Roster' },
-  { href: '/characters', label: 'My characters' },
-  // Until the service has answered, fall back to what Discord told us, which is the rule
-  // this replaced. Never hide the entry because the question could not be put.
-  ...((session?.abilities?.configure ?? session?.guildAdmin)
-    ? [{ href: '/guild/config', label: 'Configuration' }]
-    : []),
-];
+const items = !chosen
+  ? []
+  : [
+      { href: '/dashboard', label: 'Overview' },
+      { href: '/events', label: 'Events' },
+      { href: '/roster', label: 'Roster' },
+      // Always here, for every guild. Most of what is behind it is Premium, and hiding the
+      // entry until somebody pays makes the product look smaller than it is: the page says
+      // what each panel would show, which is the honest version of the same pitch.
+      { href: '/analysis', label: 'Analysis' },
+      { href: '/characters', label: 'My characters' },
+      // Until the service has answered, fall back to what Discord told us, which is the rule
+      // this replaced. Never hide the entry because the question could not be put.
+      ...((session?.abilities?.configure ?? session?.guildAdmin)
+        ? [{ href: '/guild/config', label: 'Configuration' }]
+        : []),
+    ];
 
 // Creating events has no such fallback. It belongs to the guild's mapped raid-lead roles
 // alone, so guessing from Discord's admin flag would put a button in front of somebody
 // the service is about to refuse. Unknown hides it, and the middleware re-asks on the
 // next request rather than leaving it unknown.
-const mayCreateEvents = session?.abilities?.createEvents === true;
+const mayCreateEvents = chosen && session?.abilities?.createEvents === true;
 
 // /events/<id> is still Events. Exact matching would drop the indicator on a detail
 // page, which is the one place a raid lead most needs to know where they are.
@@ -33,31 +44,33 @@ function isCurrent(href: string): boolean {
 
 <header class="topbar">
   <div class="topbar__inner">
-    <a class="brand" href="/dashboard">
+    <a class="brand" href={chosen ? '/dashboard' : '/guild'}>
       <img class="brand__mark" src="/icon-512.webp" alt="" width="20" height="20" />
       <span>Raider Mate</span>
     </a>
 
-    <nav class="nav" aria-label="Main">
-      <ul>
-        {
-          items.map((item) => (
-            <li>
-              <a
-                class="nav__link"
-                href={item.href}
-                aria-current={isCurrent(item.href) ? 'page' : undefined}
-              >
-                {item.label}
-                {isCurrent(item.href) && (
-                  <span class="nav__marker" transition:name="nav-marker" aria-hidden="true" />
-                )}
-              </a>
-            </li>
-          ))
-        }
-      </ul>
-    </nav>
+    {
+      items.length > 0 && (
+        <nav class="nav" aria-label="Main">
+          <ul>
+            {items.map((item) => (
+              <li>
+                <a
+                  class="nav__link"
+                  href={item.href}
+                  aria-current={isCurrent(item.href) ? 'page' : undefined}
+                >
+                  {item.label}
+                  {isCurrent(item.href) && (
+                    <span class="nav__marker" transition:name="nav-marker" aria-hidden="true" />
+                  )}
+                </a>
+              </li>
+            ))}
+          </ul>
+        </nav>
+      )
+    }
 
     <div class="topbar__end">
       {

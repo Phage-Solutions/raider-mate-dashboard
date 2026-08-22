@@ -12,7 +12,72 @@ Sections are `Added`, `Changed`, `Deprecated`, `Removed`, `Fixed`, `Security`.
 
 ## [Unreleased]
 
-## [0.4.0] - 2026-08-20
+## [0.5.0] - 2026-08-22
+
+### Added
+
+- **Search and recent servers on the guild picker.** A raider in dozens of Discord
+  servers no longer has to scroll the pile: the picker filters by name as you type, and
+  the servers you have opened before sit at the top. Both appear only once there are
+  enough servers to be worth it.
+
+- **Analysis.** A new page in the nav, covering the last ninety days: the shape of the
+  raid week, who turned up, what you actually field, how much of the roster is still
+  showing up, and the roster's item level over time. Attendance is free for every guild.
+  The other four panels are part of Premium, and render as locked panels naming what they
+  would show rather than as a blurred chart of numbers nobody measured.
+- **Gear over time reads the middle half of the raid.** The service now reports quartiles
+  over registered mains, so the curve is no longer set by whichever alt somebody
+  abandoned at level twenty. The panel says the gap in a sentence: half the raid sits
+  between two numbers, over so many mains.
+- **Locked panels.** A gated panel now has a shape: full contrast, a neutral Premium
+  chip, one sentence, one button. Nothing is blurred or greyed, because a raid lead has
+  to be able to read what they would be getting. Whether a panel is locked is the
+  service's answer and never a check made here, so a subscription that lapses simply
+  stops filling the panels in.
+- **The attendance table sorts.** Raider, turnout, no shows and never answered are
+  clickable column headers. Server-rendered from the query string, so a sorted view is a
+  link you can paste into Discord, it works without script, and the keyboard reaches it
+  like any other link. The default is still the order the service sent.
+- **The raid week counts raiders, not signups.** A bar covers a week, and a week holds
+  however many raids the guild ran, so summing each raid's signups reported more people
+  than the guild has: twelve raiders over three nights read as thirty-six. Each bar is
+  now how many people confirmed that week, counted once each, and the panel says how many
+  raids those bars cover.
+- **Hover either chart for the numbers.** A raid week bar gives confirmed, did not
+  appear, and how many raids that week held; a gear week gives the median, the middle
+  half, and how many mains it was measured over. Keyboard reachable, no script: the
+  reveal is hover and focus in CSS.
+- **The page opens on something you can read.** Panels the service sent no data for are
+  gathered at the end rather than sitting in the middle of the ones that have numbers, so
+  a guild without a subscription no longer opens Analysis on an advert. Panels arrive back
+  in their proper places the moment the data does.
+- **Both charts carry both axes.** Signups per week and item level per week now have a
+  labelled y-axis with gridlines, and an x-axis that covers the whole ninety days rather
+  than only the weeks with data. A guild two weeks in sees two weeks against a
+  thirteen-week grid, which is what having two weeks of history looks like.
+- **The first charts in the dashboard.** Hand-drawn SVG, no chart library. Colour on them
+  follows the same rule as everywhere else on this surface: a hue means a role or a
+  state, and the one chart with no such channel to borrow, item level over time, is drawn
+  entirely in neutrals.
+
+Needs raider-mate-service with the analysis endpoints. Against an older service the page
+finds no index and shows that it could not ask.
+
+### Fixed
+
+- **The guild picker never told you which servers run Raider Mate.** It groups the ones
+  Raider Mate already knows you in above the rest, but the call it makes to find that out
+  was answered 400 every time, so everybody saw one flat pile of every Discord server they
+  are in. Needs raider-mate-service with the matching fix; against an older service the
+  picker degrades to the flat list as before, and now says so in the server log instead of
+  passing it off as a working page.
+- **The navigation offered pages you could not open yet.** Before a guild is chosen, every
+  entry in the bar led somewhere guild-scoped that bounced straight back to the picker.
+  The bar now carries your name and the way out, and nothing else, until you have picked
+  one.
+
+## [0.4.0] - 2026-08-22
 
 ### Added
 

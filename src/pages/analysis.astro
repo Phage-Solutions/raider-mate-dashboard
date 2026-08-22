@@ -1,0 +1,790 @@
+---
+import IlvlChart from '../components/ilvl-chart.astro';
+import LockedPanel from '../components/locked-panel.astro';
+import ProportionBar from '../components/proportion-bar.astro';
+import ThroughputChart from '../components/throughput-chart.astro';
+import DashboardLayout from '../layouts/dashboard-layout.astro';
+import { getLink, hasLink } from '../lib/links';
+import { ROLE_HUES, ROLE_LABELS, ROLE_ORDER } from '../lib/roles';
+import { noticeFor } from '../lib/service-notice';
+import { classColor } from '../lib/wow-class';
+import type {
+  AnalysisIndex,
+  Attendance,
+  CompBalance,
+  IlvlSeries,
+  RaiderAttendance,
+  RosterHealth,
+  Throughput,
+} from '../lib/service-types';
+
+export const prerender = false;
+
+const { session, actor, client } = Astro.locals;
+
+if (!session!.selectedGuildId) {
+  return Astro.redirect('/guild');
+}
+
+/*
+ * Five panels, in one order, always. Which of them holds numbers is the service's
+ * answer: the index carries a link for every panel this guild may read, and a panel with
+ * no link renders locked. The list of panels is this repo's own vocabulary, so naming
+ * them here is not a permissions model; what is behind each one is not decided here at
+ * all, and a lapsed subscription looks exactly like a guild that never subscribed.
+ */
+let attendance: Attendance | null = null;
+let balance: CompBalance | null = null;
+let health: RosterHealth | null = null;
+let throughput: Throughput | null = null;
+let ilvl: IlvlSeries | null = null;
+let failure: string | null = null;
+
+try {
+  const index = await client.get<AnalysisIndex>(
+    actor,
+    `/api/guilds/${session!.selectedGuildId}/analysis`,
+  );
+
+  // One panel failing must not blank the four that loaded, the same way the guild
+  // configuration page survives a 403 on a sub-resource it was not offered.
+  const [free, roles, roster, weeks, gear] = await Promise.allSettled([
+    follow<Attendance>(index, 'attendance'),
+    follow<CompBalance>(index, 'comp-balance'),
+    follow<RosterHealth>(index, 'roster-health'),
+    follow<Throughput>(index, 'throughput'),
+    follow<IlvlSeries>(index, 'ilvl'),
+  ]);
+
+  attendance = settled(free);
+  balance = settled(roles);
+  health = settled(roster);
+  throughput = settled(weeks);
+  ilvl = settled(gear);
+} catch (error) {
+  failure = noticeFor(error);
+}
+
+async function follow<T>(index: AnalysisIndex, rel: string): Promise<T | null> {
+  // No link, nothing to ask for. The panel renders locked, and the service is never
+  // put in the position of refusing a request this page already knew the answer to.
+  if (!hasLink(index, rel)) {
+    return null;
+  }
+  return (await client.follow<T>(actor, getLink(index, rel)!)).body;
+}
+
+function settled<T>(result: PromiseSettledResult<T | null>): T | null {
+  return result.status === 'fulfilled' ? result.value : null;
+}
+
+// Every panel reports the same window, so whichever one loaded can name it.
+const covered = attendance ?? balance ?? health ?? throughput ?? ilvl;
+
+/**
+ * The panels the service sent nothing for, named so the page can say what is behind
+ * them. Listed in the order they would have appeared in, so a guild that subscribes
+ * sees them arrive where they were always going to be.
+ */
+const locked = [
+  {
+    has: throughput !== null,
+    title: 'The raid week',
+    blurb: 'Raids run per week, and what share of the people who said yes never appeared.',
+  },
+  {
+    has: attendance !== null,
+    title: 'Attendance',
+    blurb: 'Who turns up, who says no in advance, and who never answers at all.',
+  },
+  {
+    has: balance !== null,
+    title: 'Comp balance',
+    blurb:
+      'Which roles you actually field week to week, and who has been carrying the bench for everyone else.',
+  },
+  {
+    has: health !== null,
+    title: 'Roster health',
+    blurb:
+      'How much of the roster still turns up, and which role you are one holiday away from not being able to field.',
+  },
+  {
+    has: ilvl !== null,
+    title: 'Gear over time',
+    blurb:
+      "The roster's item level week by week, from snapshots Raider Mate has been keeping for you all along.",
+  },
+].filter((panel) => !panel.has);
+
+/**
+ * A rate the service already worked out, as a whole percent. Rounding is presentation;
+ * the division happened in the service, which is where it belongs.
+ */
+function percent(rate: number): string {
+  return `${Math.round(rate * 100)}%`;
+}
+
+/*
+ * Sorting the attendance table.
+ *
+ * Server-rendered from the query string, like the events list's pagination: real links,
+ * no script, keyboard-native, and a sorted view is a URL a raid lead can paste into
+ * Discord. The cost is that a sort click re-renders the whole page, which on a
+ * between-raids screen is a fair trade for having no client-side state at all.
+ *
+ * This is not the repo deciding an order the service decided. The service sends the
+ * roster order and that is still the default; everything below only happens because
+ * somebody clicked a column.
+ */
+type SortKey = 'raider' | 'turnout' | 'no-shows' | 'silence';
+
+const SORT_KEYS: SortKey[] = ['raider', 'turnout', 'no-shows', 'silence'];
+
+/** What each column sorts on, and which way round it reads first. */
+const SORTS: Record<
+  SortKey,
+  { of: (raider: RaiderAttendance) => number | string; first: 'asc' | 'desc' }
+> = {
+  // A name reads A to Z first. Every number reads worst-first, because the reason to
+  // sort a roster by no-shows is to find the no-shows.
+  raider: { of: (raider) => raider.name.toLowerCase(), first: 'asc' },
+  turnout: { of: (raider) => raider.rate, first: 'desc' },
+  'no-shows': { of: (raider) => raider.no_show, first: 'desc' },
+  silence: { of: (raider) => raider.silence, first: 'desc' },
+};
+
+const requestedSort = Astro.url.searchParams.get('sort');
+const sort: SortKey | null = SORT_KEYS.includes(requestedSort as SortKey)
+  ? (requestedSort as SortKey)
+  : null;
+const requestedDir = Astro.url.searchParams.get('dir');
+const dir: 'asc' | 'desc' =
+  requestedDir === 'asc' || requestedDir === 'desc'
+    ? requestedDir
+    : sort
+      ? SORTS[sort].first
+      : 'asc';
+
+// Sorted once here rather than inside the template, so the stagger index below follows
+// what is actually on screen.
+const raiders = sortRaiders(attendance?.raiders ?? []);
+
+function sortRaiders(rows: RaiderAttendance[]): RaiderAttendance[] {
+  if (!sort) {
+    return rows;
+  }
+  const { of } = SORTS[sort];
+  const sign = dir === 'asc' ? 1 : -1;
+  // Copied before sorting: the array came off the response and reordering it in place
+  // would mean the order depended on which panel read it first.
+  return [...rows].sort((a, b) => {
+    const left = of(a);
+    const right = of(b);
+    if (left < right) return -1 * sign;
+    if (left > right) return 1 * sign;
+    // Ties fall back to the service's own ordering key, so two raiders on the same
+    // turnout do not swap places between two renders of the same data.
+    return a.name.localeCompare(b.name);
+  });
+}
+
+/** Where a column header points: its own sort, flipped if it is the one already on. */
+function sortHref(key: SortKey): string {
+  const next = sort === key && dir === SORTS[key].first ? flip(SORTS[key].first) : SORTS[key].first;
+  return `/analysis?sort=${key}&dir=${next}`;
+}
+
+function flip(direction: 'asc' | 'desc'): 'asc' | 'desc' {
+  return direction === 'asc' ? 'desc' : 'asc';
+}
+
+function ariaSort(key: SortKey): 'ascending' | 'descending' | 'none' {
+  if (sort !== key) {
+    return 'none';
+  }
+  return dir === 'asc' ? 'ascending' : 'descending';
+}
+
+/**
+ * The direction mark on a column header, or nothing when the column is not the one
+ * being sorted. Decorative: aria-sort on the header is what a screen reader reads.
+ */
+function caret(key: SortKey): string {
+  if (sort !== key) {
+    return '';
+  }
+  return dir === 'asc' ? '\u2191' : '\u2193';
+}
+---
+
+<DashboardLayout title="Analysis">
+  <p slot="head" class="muted">
+    The last ninety days in {session!.selectedGuildName}. Every panel covers the same window.
+  </p>
+
+  {
+    covered && (
+      <span slot="actions" class="badge">
+        {covered.since.slice(0, 10)} to {covered.until.slice(0, 10)}
+      </span>
+    )
+  }
+
+  {failure && <p class="notice">{failure}</p>}
+
+  <div class="stack">
+    {
+      throughput && (
+        <section class="panel">
+          <div class="panel__head">
+            <h2>The raid week</h2>
+          </div>
+          <div class="panel__body">
+            {throughput.weeks.length > 0 ? (
+              <>
+                <ThroughputChart weeks={throughput.weeks} window={throughput} />
+                <p class="chart-read">
+                  <strong>{throughput.events}</strong> {throughput.events === 1 ? 'raid' : 'raids'}{' '}
+                  over <strong>{throughput.weeks.length}</strong>{' '}
+                  {throughput.weeks.length === 1 ? 'week' : 'weeks'}. Each bar counts raiders, not
+                  signups, so somebody who came to both of a week's raids counts once.
+                </p>
+                <p class="legend">
+                  <span class="legend__item">
+                    <span class="legend__key legend__key--bar" aria-hidden="true" />
+                    Confirmed
+                  </span>
+                  <span class="legend__item">
+                    <span class="legend__key legend__key--lost" aria-hidden="true" />
+                    Did not appear
+                  </span>
+                </p>
+              </>
+            ) : (
+              <p class="muted">No raids in the last ninety days.</p>
+            )}
+          </div>
+        </section>
+      )
+    }
+
+    {
+      attendance && attendance.raiders.length > 0 && (
+        <section class="panel">
+          <div class="panel__head">
+            <h2>Attendance</h2>
+            <span class="badge">{attendance.events} raids</span>
+          </div>
+          <div class="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th scope="col" aria-sort={ariaSort('raider')}>
+                    <a class="sort" href={sortHref('raider')}>
+                      Raider
+                      <span class="sort__caret" aria-hidden="true">
+                        {caret('raider')}
+                      </span>
+                    </a>
+                  </th>
+                  {/* Season carries the same three numbers the columns beside it do, so
+                  it has nothing of its own to sort on. */}
+                  <th scope="col" class="season">
+                    Season
+                  </th>
+                  <th scope="col" class="num" aria-sort={ariaSort('turnout')}>
+                    <a class="sort" href={sortHref('turnout')}>
+                      Turnout
+                      <span class="sort__caret" aria-hidden="true">
+                        {caret('turnout')}
+                      </span>
+                    </a>
+                  </th>
+                  <th scope="col" class="num" aria-sort={ariaSort('no-shows')}>
+                    <a class="sort" href={sortHref('no-shows')}>
+                      No shows
+                      <span class="sort__caret" aria-hidden="true">
+                        {caret('no-shows')}
+                      </span>
+                    </a>
+                  </th>
+                  <th scope="col" class="num" aria-sort={ariaSort('silence')}>
+                    <a class="sort" href={sortHref('silence')}>
+                      Never answered
+                      <span class="sort__caret" aria-hidden="true">
+                        {caret('silence')}
+                      </span>
+                    </a>
+                  </th>
+                </tr>
+              </thead>
+              <tbody>
+                {raiders.map((raider, index) => {
+                  const turnedUp = raider.confirmed + raider.late;
+                  const saidNo = raider.declined + raider.tentative + raider.absent;
+                  return (
+                    <tr>
+                      <th scope="row" class="raider">
+                        <span
+                          class="raider__mark"
+                          style={`background: ${classColor(raider.class) ?? 'var(--border-strong)'}`}
+                          aria-hidden="true"
+                        />
+                        <span class="raider__name">{raider.name}</span>
+                        <span class="raider__realm">{raider.realm}</span>
+                      </th>
+                      <td class="season">
+                        <ProportionBar
+                          index={index}
+                          total={attendance!.events}
+                          label={`${turnedUp} turned up, ${raider.no_show} did not appear, ${saidNo} answered no, out of ${attendance!.events} raids.`}
+                          segments={[
+                            { hue: 'var(--success)', value: turnedUp, label: 'Turned up' },
+                            { hue: 'var(--danger)', value: raider.no_show, label: 'No show' },
+                            { hue: 'var(--text-tertiary)', value: saidNo, label: 'Answered no' },
+                          ]}
+                        />
+                      </td>
+                      <td class="num">{percent(raider.rate)}</td>
+                      <td class="num">
+                        {raider.no_show > 0 ? raider.no_show : <span class="dash">—</span>}
+                      </td>
+                      <td class="num">{percent(raider.silence)}</td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        </section>
+      )
+    }
+
+    {
+      attendance && attendance.raiders.length === 0 && (
+        <section class="panel">
+          <div class="panel__head">
+            <h2>Attendance</h2>
+          </div>
+          <div class="empty">
+            <h3>Nobody has answered anything yet</h3>
+            <p>
+              {attendance.events > 0
+                ? 'The raids ran, but no signups landed in the window. Post an event and this fills itself.'
+                : 'No raids in the last ninety days. Run one and this fills itself.'}
+            </p>
+          </div>
+        </section>
+      )
+    }
+
+    {
+      balance && (
+        <section class="panel">
+          <div class="panel__head">
+            <h2>Comp balance</h2>
+          </div>
+          <div class="panel__body split">
+            <div>
+              <h3 class="split__head">What you field</h3>
+              {balance.roles.length > 0 ? (
+                <ul class="rows">
+                  {ROLE_ORDER.filter((role) => balance!.roles.some((row) => row.role === role)).map(
+                    (role, index) => {
+                      const row = balance!.roles.find((entry) => entry.role === role)!;
+                      return (
+                        <li class="row">
+                          <span class="row__label">{ROLE_LABELS[role]}</span>
+                          <ProportionBar
+                            index={index}
+                            total={row.placed + row.benched}
+                            label={`${row.placed} placed, ${row.benched} benched.`}
+                            segments={[
+                              { hue: ROLE_HUES[role], value: row.placed, label: 'Placed' },
+                              { hue: 'var(--text-tertiary)', value: row.benched, label: 'Benched' },
+                            ]}
+                          />
+                          <span class="row__figure">
+                            <span class="row__value">{row.placed}</span>
+                            <span class="row__note">{percent(row.bench_rate)} benched</span>
+                          </span>
+                        </li>
+                      );
+                    },
+                  )}
+                </ul>
+              ) : (
+                <p class="muted">No comps have been built in the window.</p>
+              )}
+            </div>
+
+            <div>
+              <h3 class="split__head">Who carries the bench</h3>
+              {balance.bench.length > 0 ? (
+                <ul class="rows">
+                  {balance.bench.slice(0, 8).map((record, index) => (
+                    <li class="row">
+                      <span class="row__label">{record.name}</span>
+                      {/* Neutral, because the event view draws a bench neutrally too, and
+                      because four warning-coloured bars beside the one amber button would
+                      take the eye straight off the only thing on the panel you can act on. */}
+                      <ProportionBar
+                        index={index}
+                        total={record.boards}
+                        label={`Benched on ${record.benched} of ${record.boards} boards.`}
+                        segments={[
+                          { hue: 'var(--text-secondary)', value: record.benched, label: 'Benched' },
+                        ]}
+                      />
+                      <span class="row__figure">
+                        <span class="row__value">{percent(record.rate)}</span>
+                        <span class="row__note">{record.boards} boards</span>
+                      </span>
+                    </li>
+                  ))}
+                </ul>
+              ) : (
+                <p class="muted">Nobody has been benched in the window.</p>
+              )}
+            </div>
+          </div>
+        </section>
+      )
+    }
+
+    {
+      health && (
+        <section class="panel">
+          <div class="panel__head">
+            <h2>Roster health</h2>
+          </div>
+          <div class="panel__body">
+            <dl class="figures">
+              <div>
+                <dt>Characters</dt>
+                <dd>{health.characters}</dd>
+              </div>
+              <div>
+                <dt>Mains</dt>
+                <dd>{health.mains}</dd>
+              </div>
+              <div>
+                <dt>Turning up</dt>
+                <dd>{health.active}</dd>
+              </div>
+              <div>
+                <dt>Gone quiet</dt>
+                <dd>{health.dormant}</dd>
+              </div>
+            </dl>
+
+            {health.coverage.length > 0 ? (
+              <ul class="rows">
+                {ROLE_ORDER.filter((role) => health!.coverage.some((row) => row.role === role)).map(
+                  (role, index) => {
+                    const row = health!.coverage.find((entry) => entry.role === role)!;
+                    return (
+                      <li class="row">
+                        <span class="row__label">{ROLE_LABELS[role]}</span>
+                        <ProportionBar
+                          index={index}
+                          total={row.characters}
+                          label={`${row.characters} can play it, ${row.first_choice} put it first.`}
+                          segments={[
+                            {
+                              hue: ROLE_HUES[role],
+                              value: row.first_choice,
+                              label: 'First choice',
+                            },
+                            {
+                              hue: 'var(--text-tertiary)',
+                              value: row.characters - row.first_choice,
+                              label: 'Will play it',
+                            },
+                          ]}
+                        />
+                        <span class="row__value">{row.characters}</span>
+                        <span class="row__note">{row.first_choice} first choice</span>
+                      </li>
+                    );
+                  },
+                )}
+              </ul>
+            ) : (
+              <p class="muted">Nobody has set a role menu yet.</p>
+            )}
+          </div>
+        </section>
+      )
+    }
+
+    {
+      ilvl && (
+        <section class="panel">
+          <div class="panel__head">
+            <h2>Gear over time</h2>
+            {ilvl.weeks.length > 0 && (
+              <span class="badge">
+                {Math.round(ilvl.weeks[ilvl.weeks.length - 1]!.median)} median
+              </span>
+            )}
+          </div>
+          <div class="panel__body">
+            {ilvl.weeks.length > 0 ? (
+              <>
+                <IlvlChart weeks={ilvl.weeks} window={ilvl} />
+              </>
+            ) : (
+              <p class="muted">
+                No snapshots in the window. Item level lands here once raiders register characters
+                and the sync has run.
+              </p>
+            )}
+          </div>
+        </section>
+      )
+    }
+    {
+      /*
+       * Everything the service did not send data for, gathered at the end.
+       *
+       * The order above is the order these panels are meant to be read in, and for a
+       * guild on Premium that is exactly what they get. A guild without one would
+       * otherwise open the page on a locked panel, because the raid week leads: the most
+       * useful thing on the page would be below an advert for itself.
+       *
+       * This is still not a tier check. It sorts on whether a panel has content, which
+       * is the service's answer and the same absence a lapsed subscription produces.
+       */
+      locked.length > 0 && (
+        <div class="stack">
+          {locked.map((panel) => (
+            <LockedPanel title={panel.title} blurb={panel.blurb} />
+          ))}
+        </div>
+      )
+    }
+  </div>
+</DashboardLayout>
+
+<style>
+  /* A column header is a link, so it inherits the header's own type rather than turning
+     into body text sitting in a table head. The caret keeps its own space whether or not
+     it is filled, so clicking a header does not shift the row it is in. */
+  .sort {
+    display: inline-flex;
+    gap: 0.375rem;
+    align-items: center;
+    color: inherit;
+    font: inherit;
+    letter-spacing: inherit;
+    text-decoration: none;
+    text-transform: inherit;
+  }
+
+  .sort:hover {
+    color: var(--text-primary);
+  }
+
+  .num .sort {
+    /* Numeric headers are right-aligned, so the caret belongs on the outside edge. */
+    flex-direction: row-reverse;
+  }
+
+  /* Not amber. The nav already spends this screen's one amber on where you are, and a
+     second one in a table head would compete with it. */
+  .sort__caret {
+    display: inline-block;
+    min-width: 0.6em;
+    color: var(--text-primary);
+    font-size: var(--fs-xs);
+  }
+
+  .stack {
+    display: grid;
+    /* minmax(0, 1fr) rather than the default auto: a grid item's automatic minimum size
+       is its content, so the attendance table would push the whole page wider than a
+       phone instead of scrolling inside its own wrapper. */
+    grid-template-columns: minmax(0, 1fr);
+    gap: 1.25rem;
+  }
+
+  /* A raider is a name, a realm, and a class marker, the same three things the roster
+     shows, so the two pages read as one list of the same people. */
+  .raider {
+    display: flex;
+    gap: 0.5rem;
+    align-items: baseline;
+    font-weight: 500;
+    text-align: left;
+  }
+
+  .raider__mark {
+    width: 3px;
+    height: 0.875rem;
+    flex: none;
+    border-radius: var(--radius-full);
+    transform: translateY(2px);
+  }
+
+  .raider__realm {
+    color: var(--text-tertiary);
+    font-size: var(--fs-xs);
+    font-weight: 400;
+  }
+
+  /* The widest column, because the bar is the column a raid lead actually reads. */
+  .season {
+    width: 40%;
+    min-width: 8rem;
+  }
+
+  .split {
+    display: grid;
+    gap: 1.75rem 2.5rem;
+    grid-template-columns: repeat(auto-fit, minmax(min(18rem, 100%), 1fr));
+  }
+
+  .split > * {
+    min-width: 0;
+  }
+
+  .split__head {
+    margin-bottom: 0.875rem;
+    color: var(--text-secondary);
+    font-size: var(--fs-xs);
+    font-weight: 560;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+  }
+
+  .rows {
+    display: grid;
+    gap: 0.75rem;
+    /* Capped as a block rather than per bar. Left to fill a full-width panel the figure
+       column lands against the panel edge and leaves a corridor of nothing between a bar
+       and its own number; a bar stretched that far stops being a comparison anyway. */
+    max-width: 34rem;
+    margin: 0;
+    padding: 0;
+    list-style: none;
+  }
+
+  .row {
+    display: grid;
+    gap: 0.75rem;
+    grid-template-columns: 5.5rem minmax(0, 1fr) auto;
+    align-items: center;
+  }
+
+  .row__label {
+    font-size: var(--fs-sm);
+  }
+
+  .row__figure {
+    display: grid;
+    justify-items: end;
+    line-height: 1.3;
+  }
+
+  .row__value {
+    font-variant-numeric: tabular-nums;
+  }
+
+  .row__note {
+    color: var(--text-tertiary);
+    font-size: var(--fs-xs);
+    white-space: nowrap;
+  }
+
+  .figures {
+    display: grid;
+    gap: 1rem 2rem;
+    /* auto-fit rather than a fixed four: the labels do not wrap, so four columns on a
+       phone would push the whole page wider than the viewport. Two rows of two is the
+       honest fallback. */
+    grid-template-columns: repeat(auto-fit, minmax(6.5rem, 1fr));
+    align-items: start;
+    /* Same cap as .rows, so the panel reads as one block rather than as a wide header
+       sitting over a narrow chart. */
+    max-width: 34rem;
+    margin: 0 0 1.75rem;
+  }
+
+  .figures dt {
+    color: var(--text-tertiary);
+    white-space: nowrap;
+    font-size: var(--fs-xs);
+    font-weight: 560;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+  }
+
+  .figures dd {
+    margin: 0.125rem 0 0;
+    font-size: var(--fs-xl);
+    font-variant-numeric: tabular-nums;
+  }
+
+  /* Same shape as the gear chart's read-out. A chart says the trend; this says the
+     number, and here it also says what one bar is, because a bar covering three raid
+     nights and a bar covering one look identical. */
+  .chart-read {
+    margin: 0.875rem 0 0;
+    color: var(--text-secondary);
+    font-size: var(--fs-sm);
+  }
+
+  .chart-read strong {
+    color: var(--text-primary);
+    font-variant-numeric: tabular-nums;
+    font-weight: 600;
+  }
+
+  .legend {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.375rem 1.25rem;
+    align-items: center;
+    margin: 0.875rem 0 0;
+    color: var(--text-tertiary);
+    font-size: var(--fs-xs);
+  }
+
+  .legend__item {
+    display: inline-flex;
+    gap: 0.4rem;
+    align-items: center;
+  }
+
+  /* Shaped like the mark it stands for: a bar, not a dot. */
+  .legend__key {
+    width: 8px;
+    height: 14px;
+    flex: none;
+    border-radius: var(--radius-sm);
+  }
+
+  /* The same fill the bars carry, or the legend is describing a chart that no longer
+     exists. */
+  .legend__key--bar {
+    background: color-mix(in srgb, var(--success) 72%, transparent);
+  }
+
+  .legend__key--lost {
+    background: var(--danger);
+  }
+
+  /* On a narrow panel the two-column rows have no room for a label beside a bar, so the
+     label takes its own line rather than squeezing the bar out of readability. */
+  @media (max-width: 44rem) {
+    .row {
+      grid-template-columns: minmax(0, 1fr) auto;
+    }
+
+    .row__label {
+      grid-column: 1 / -1;
+    }
+  }
+</style>

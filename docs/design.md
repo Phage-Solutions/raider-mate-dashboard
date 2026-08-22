@@ -14,10 +14,25 @@ repo.
   and audit endpoints.
 - **Event view.** Signups and comp, from the signup and comp endpoints.
 - **Comp builder.** Manual editing of a comp's slots. This repo owns it; see below.
-- **Premium views.** Attendance trends, gear gap analysis, enchant compliance. Rendered
-  only when the API returns the data. A lapsed subscription means the service stops
-  returning it, and the dashboard shows an upsell state rather than reading a tier flag
-  client-side.
+- **Analysis.** Five panels over one fixed ninety-day window: attendance, comp balance,
+  roster health, the raid week, and gear over time. Attendance is free for every guild;
+  the other four are Premium.
+
+  Which of them holds numbers is decided entirely by the link set on
+  `GET /api/guilds/{gid}/analysis`. A panel with no link renders locked. The list of
+  five panels is this repo's own UI vocabulary, so naming them in the page is not a
+  client-side permissions model; what is behind each one is never decided here, and a
+  lapsed subscription looks exactly like a guild that never subscribed.
+
+  Going straight to a gated panel answers 402 rather than 403, and the page renders the
+  same locked state. That redundancy is deliberate: it is a second reading of the
+  service's answer, never a second source of truth.
+
+  No number on the page is computed here. Every rate, share and median arrives worked
+  out; a page that divides two of its own fields is a bug.
+- **Premium views still to come.** Gear gap analysis and enchant compliance. Same rule:
+  rendered only when the API returns the data, upsell state when it does not, never a
+  tier flag read client-side.
 
 ## 2. HATEOAS and allowed_statuses
 

@@ -1,0 +1,304 @@
+---
+import ChartAxis from './chart-axis.astro';
+import ChartReadout from './chart-readout.astro';
+import ChartScale from './chart-scale.astro';
+import {
+  niceStep,
+  paddedRange,
+  verticalScale,
+  weekSlots,
+  weekTicks,
+  type Window,
+} from '../lib/week-plot';
+import type { IlvlWeek } from '../lib/service-types';
+
+interface Props {
+  weeks: IlvlWeek[];
+  /** The panel's window, so the axis is ninety days whatever the data covers. */
+  window: Window;
+}
+
+const { weeks, window } = Astro.props;
+
+const WIDTH = 1000;
+const HEIGHT = 170;
+
+const slots = weekSlots(
+  weeks.map((week) => week.week),
+  WIDTH,
+  window,
+);
+
+/*
+ * Scaled to the quartiles and the median, which is everything drawn. The old chart
+ * scaled to the lowest and highest item level on the roster, and since the lowest was
+ * whichever alt somebody abandoned at level twenty, the median ended up welded to the
+ * top edge with two hundred item levels of empty band under it.
+ */
+const { min, max } = paddedRange(weeks.flatMap((week) => [week.p25, week.p75]));
+const y = verticalScale(min, max, HEIGHT);
+const grid = weekTicks(window, WIDTH);
+
+/*
+ * Item level does not start at zero, so the scale is the range being drawn rather than a
+ * run of round numbers up from nothing. The step is still a round one: dividing the
+ * range in three and rounding gives 285/294/302/311, which is four numbers a reader has
+ * to subtract to make sense of.
+ */
+const step = niceStep((max - min) / 3);
+const scale: { label: string; pct: number }[] = [];
+for (let value = Math.ceil(min / step) * step; value <= max; value += step) {
+  scale.push({ label: String(value), pct: ((value - min) / (max - min)) * 100 });
+}
+
+const points = weeks.map((week, index) => ({
+  x: slots[index]!.x,
+  median: y(week.median),
+  top: y(week.p75),
+  bottom: y(week.p25),
+}));
+
+// One target per week. A band and a line have no bar to aim at, so the target is the
+// whole vertical slice the week occupies and the readout floats from its median.
+const readouts = weeks.map((week, index) => ({
+  ...week,
+  label: slots[index]!.label,
+  centre: (slots[index]!.x / WIDTH) * 100,
+  medianPct: ((HEIGHT - points[index]!.median) / HEIGHT) * 100,
+  sentence: `${slots[index]!.label}: median ${Math.round(week.median)}, half the raid between ${Math.round(week.p25)} and ${Math.round(week.p75)}, over ${week.characters} ${week.characters === 1 ? 'main' : 'mains'}.`,
+}));
+
+// The slice a week owns, so two weeks of data do not each get half the chart to hover.
+const WEEK_MS = 7 * 24 * 60 * 60 * 1000;
+const windowMs = new Date(window.until).getTime() - new Date(window.since).getTime();
+const sliceWidth = windowMs > 0 ? (WEEK_MS / windowMs) * 100 : 100;
+
+// The band is the middle half of the raid, drawn as one closed shape: down the top
+// edge, back along the bottom.
+const band = [
+  ...points.map((point, index) => `${index === 0 ? 'M' : 'L'}${point.x} ${point.top}`),
+  ...points
+    .slice()
+    .reverse()
+    .map((point) => `L${point.x} ${point.bottom}`),
+  'Z',
+].join(' ');
+
+const median = points
+  .map((point, index) => `${index === 0 ? 'M' : 'L'}${point.x} ${point.median}`)
+  .join(' ');
+
+const latest = weeks[weeks.length - 1];
+---
+
+<figure class="chart">
+  <div class="chart__frame">
+    <div class="chart__plotwrap">
+      <svg
+        class="chart__plot"
+        viewBox={`0 0 ${WIDTH} ${HEIGHT}`}
+        preserveAspectRatio="none"
+        role="img"
+        aria-label={`Item level over ${weeks.length} weeks. The middle half of the raid runs from ${min} to ${max}.`}
+      >
+        {
+          /* The calendar behind the data, same as the raid week's. Two weeks of snapshots
+        in a ninety-day frame need something to be two weeks of. */
+          grid.map((x) => (
+            <line
+              x1={x}
+              y1="0"
+              x2={x}
+              y2={HEIGHT}
+              class="chart__week"
+              vector-effect="non-scaling-stroke"
+            />
+          ))
+        }
+        {
+          scale.map((tick) => (
+            <line
+              x1="0"
+              y1={HEIGHT - (tick.pct / 100) * HEIGHT}
+              x2={WIDTH}
+              y2={HEIGHT - (tick.pct / 100) * HEIGHT}
+              class="chart__rule"
+              vector-effect="non-scaling-stroke"
+            />
+          ))
+        }
+        {
+          points.length > 1 && (
+            <path d={band} class="chart__band" vector-effect="non-scaling-stroke" />
+          )
+        }
+        <path d={median} class="chart__median" vector-effect="non-scaling-stroke"></path>
+        {
+          /* One week has no line to draw, so the quartiles become a bar and the median a
+        mark on it. Two points make a wedge; one point makes nothing at all. */
+          points.length === 1 && (
+            <>
+              <line
+                x1={points[0]!.x}
+                y1={points[0]!.top}
+                x2={points[0]!.x}
+                y2={points[0]!.bottom}
+                class="chart__stem"
+                vector-effect="non-scaling-stroke"
+              />
+              <circle cx={points[0]!.x} cy={points[0]!.median} r="4" class="chart__dot" />
+            </>
+          )
+        }
+      </svg>
+      {
+        readouts.map((week) => (
+          <ChartReadout
+            centre={week.centre}
+            width={sliceWidth}
+            top={week.medianPct}
+            label={week.sentence}
+          >
+            <span class="tip__week">{week.label}</span>
+            <span class="tip__line">
+              <span class="tip__swatch tip__swatch--median" />
+              {Math.round(week.median)} median
+            </span>
+            <span class="tip__line">
+              <span class="tip__swatch tip__swatch--band" />
+              {Math.round(week.p25)} to {Math.round(week.p75)}
+            </span>
+            <span class="tip__mains">
+              {week.characters} {week.characters === 1 ? 'main' : 'mains'}
+            </span>
+          </ChartReadout>
+        ))
+      }
+    </div>
+    <ChartScale ticks={scale} />
+  </div>
+  <figcaption class="chart__foot">
+    <ChartAxis slots={slots} width={WIDTH} />
+  </figcaption>
+  {
+    latest && (
+      <p class="chart__read">
+        Half the raid sits between <strong>{Math.round(latest.p25)}</strong> and{' '}
+        <strong>{Math.round(latest.p75)}</strong>, over {latest.characters}{' '}
+        {latest.characters === 1 ? 'main' : 'mains'}.
+      </p>
+    )
+  }
+</figure>
+
+<style>
+  .chart {
+    margin: 0;
+  }
+
+  .chart__frame {
+    position: relative;
+  }
+
+  .chart__plotwrap {
+    margin-left: var(--chart-gutter, 2.5rem);
+  }
+
+  .chart__plot {
+    display: block;
+    width: 100%;
+    height: 170px;
+  }
+
+  .chart__rule {
+    stroke: var(--border-subtle);
+    stroke-width: 1;
+  }
+
+  .chart__week {
+    stroke: color-mix(in srgb, var(--border-subtle) 55%, transparent);
+    stroke-width: 1;
+  }
+
+  .chart__foot {
+    margin-left: var(--chart-gutter, 2.5rem);
+  }
+
+  /*
+   * Neutral throughout, and deliberately so. On this surface a saturated hue encodes a
+   * role, a class, a difficulty or a state, and an item level is none of those. The one
+   * chart with no data channel to borrow is the one chart with no colour.
+   */
+  .chart__band {
+    fill: color-mix(in srgb, var(--text-tertiary) 17%, transparent);
+    stroke: var(--border-strong);
+    stroke-width: 1;
+  }
+
+  .chart__median {
+    fill: none;
+    stroke: var(--text-primary);
+    stroke-width: 2;
+    stroke-linejoin: round;
+    stroke-linecap: round;
+  }
+
+  .chart__stem {
+    stroke: var(--border-strong);
+    stroke-width: 8;
+  }
+
+  .chart__dot {
+    fill: var(--text-primary);
+  }
+
+  .tip__week {
+    color: var(--text-secondary);
+    font-weight: 560;
+  }
+
+  .tip__line {
+    display: flex;
+    gap: 0.4rem;
+    align-items: center;
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
+  }
+
+  .tip__mains {
+    color: var(--text-tertiary);
+  }
+
+  .tip__swatch {
+    width: 8px;
+    height: 8px;
+    flex: none;
+    border-radius: var(--radius-sm);
+  }
+
+  /* Shaped like the marks they stand for: the median is a line, the band is a block. */
+  .tip__swatch--median {
+    height: 2px;
+    border-radius: 0;
+    background: var(--text-primary);
+  }
+
+  .tip__swatch--band {
+    background: color-mix(in srgb, var(--text-tertiary) 45%, transparent);
+    border: 1px solid var(--border-strong);
+  }
+
+  /* The chart says the shape; this says the number, because "how geared are we" has an
+     answer and making a raid lead read it off an axis is making them work for it. */
+  .chart__read {
+    margin: 0.875rem 0 0;
+    color: var(--text-secondary);
+    font-size: var(--fs-sm);
+  }
+
+  .chart__read strong {
+    color: var(--text-primary);
+    font-variant-numeric: tabular-nums;
+    font-weight: 600;
+  }
+</style>

@@ -1,0 +1,108 @@
+---
+interface Props {
+  /** Where the target sits across the plot, 0 to 100. */
+  centre: number;
+  /** How wide the mark under it is, as a percentage of the plot. */
+  width: number;
+  /** How far up the plot the readout should float from, 0 at the bottom. */
+  top: number;
+  /** The sentence a screen reader gets. The slotted content is the visual version. */
+  label: string;
+}
+
+const { centre, width, top, label } = Astro.props;
+
+// A readout centred on a mark near an edge would run off the panel, which clips its own
+// overflow, so those anchor an edge to the mark instead of a middle.
+const anchor = centre > 82 ? 'end' : centre < 18 ? 'start' : 'centre';
+---
+
+{
+  /*
+   * One hover and focus target over a chart, shared by both charts on the page.
+   *
+   * HTML over the plot rather than an SVG title: a native tooltip takes a second to
+   * appear, cannot be styled to match the surface, and never shows for somebody on a
+   * keyboard. A button because it is a control that reveals something, and because that
+   * is what makes it reachable by tab. It has no click behaviour, since the reveal is
+   * hover and focus and both of those are CSS, which keeps this a page with no script.
+   */
+}
+<button
+  type="button"
+  class="hit"
+  style={`--centre: ${centre}%; --width: ${width}%; --top: ${top}%`}
+  aria-label={label}
+>
+  <span class="hit__tip" data-anchor={anchor} aria-hidden="true">
+    <slot />
+  </span>
+</button>
+
+<style>
+  /* Full height, so the pointer finds a short week as easily as a tall one, and wider
+     than the mark it covers, because a six-pixel bar is not a target. */
+  .hit {
+    position: absolute;
+    inset-block: 0;
+    left: var(--centre);
+    width: max(var(--width), 1.75rem);
+    padding: 0;
+    border: 0;
+    background: none;
+    transform: translateX(-50%);
+    cursor: default;
+  }
+
+  .hit:hover,
+  .hit:focus-visible {
+    background: color-mix(in srgb, var(--hover) 70%, transparent);
+  }
+
+  .hit:focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: -2px;
+  }
+
+  .hit__tip {
+    position: absolute;
+    /* Above the mark, but never above the plot. A full-height bar would otherwise push
+       the readout up through the panel header, and the panel clips its own overflow, so
+       it came out with its first line cut off. */
+    bottom: clamp(0.5rem, var(--top), calc(100% - 5.75rem));
+    left: 50%;
+    display: none;
+    flex-direction: column;
+    gap: 0.125rem;
+    align-items: flex-start;
+    width: max-content;
+    margin-bottom: 0.5rem;
+    padding: 0.5rem 0.625rem;
+    border: 1px solid var(--border);
+    border-radius: var(--radius-lg);
+    background: var(--raised);
+    box-shadow: var(--shadow-overlay);
+    color: var(--text-primary);
+    font-size: var(--fs-xs);
+    line-height: 1.4;
+    text-align: left;
+    transform: translateX(-50%);
+    pointer-events: none;
+  }
+
+  .hit__tip[data-anchor='end'] {
+    left: auto;
+    right: 0;
+    transform: none;
+  }
+
+  .hit__tip[data-anchor='start'] {
+    left: 0;
+    transform: none;
+  }
+
+  .hit:hover .hit__tip,
+  .hit:focus-visible .hit__tip {
+    display: flex;
+  }
+</style>

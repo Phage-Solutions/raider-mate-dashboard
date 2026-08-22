@@ -278,7 +278,11 @@ const mark = (className: string) => classColor(className) ?? 'var(--border-stron
       </div>
     </div>
 
-    <section class="pricing">
+    {
+      /* The locked panels on /analysis send a raid lead here, so the section needs a name
+      to land on. */
+    }
+    <section class="pricing" id="pricing">
       <h2>Free, hosted or not.</h2>
       {
         /* Hosting is not the paid part and the plans have to say so, because a page with

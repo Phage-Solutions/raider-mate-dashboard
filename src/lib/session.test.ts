@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { newSession, openSession, sealSession, type Session } from './session';
+import { newSession, openSession, rememberGuild, sealSession, type Session } from './session';
 
 const secret = Buffer.alloc(32, 7).toString('base64');
 const otherSecret = Buffer.alloc(32, 9).toString('base64');
@@ -69,5 +69,19 @@ describe('openSession', () => {
 describe('sealSession with a malformed secret', () => {
   it('refuses a secret that is not 32 bytes', async () => {
     await expect(sealSession(aSession(), 'dG9vIHNob3J0')).rejects.toThrow('32 bytes');
+  });
+});
+
+describe('rememberGuild', () => {
+  it('starts a history from a session that predates the field', () => {
+    expect(rememberGuild(undefined, 'a')).toEqual(['a']);
+  });
+
+  it('moves a guild picked again to the front instead of repeating it', () => {
+    expect(rememberGuild(['a', 'b', 'c'], 'c')).toEqual(['c', 'a', 'b']);
+  });
+
+  it('drops the oldest pick once the history is full', () => {
+    expect(rememberGuild(['a', 'b', 'c', 'd', 'e'], 'f')).toEqual(['f', 'a', 'b', 'c', 'd']);
   });
 });

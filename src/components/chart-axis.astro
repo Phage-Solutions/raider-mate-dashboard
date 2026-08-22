@@ -1,0 +1,74 @@
+---
+import type { WeekSlot } from '../lib/week-plot';
+
+interface Props {
+  slots: WeekSlot[];
+  /** The plot's own coordinate width, which the tick positions are a fraction of. */
+  width: number;
+}
+
+const { slots, width } = Astro.props;
+
+// Four labels at most. A ninety-day window is thirteen weeks, and thirteen dates under
+// one chart is a second chart made of text.
+const every = Math.max(1, Math.ceil(slots.length / 4));
+
+/*
+ * A label is centred on its tick, except at the very edges of the plot where centring
+ * would hang half of it off the chart.
+ *
+ * Decided per tick from where the tick actually is, not from its position in the list.
+ * Nudging the first and last labels unconditionally is what put "17 Aug" to the left of
+ * its own bar: with only two weeks of data neither of them is anywhere near an edge.
+ */
+const ticks = slots
+  .filter((_, index) => index % every === 0)
+  .map((slot) => {
+    const pct = (slot.x / width) * 100;
+    return { label: slot.label, pct, align: pct < 4 ? 'start' : pct > 96 ? 'end' : 'center' };
+  });
+---
+
+{
+  /*
+   * The dates live in HTML rather than inside the SVG so they stay real type at a real
+   * size. Both charts stretch their plot to the panel width, and SVG text stretches with
+   * it: on a phone the labels would be four pixels tall and leaning.
+   */
+}
+<div class="axis">
+  {
+    ticks.map((tick) => (
+      <span data-align={tick.align} style={`--x: ${tick.pct}%`}>
+        {tick.label}
+      </span>
+    ))
+  }
+</div>
+
+<style>
+  .axis {
+    position: relative;
+    height: 1.25rem;
+    margin-top: 0.5rem;
+    border-top: 1px solid var(--border-subtle);
+    color: var(--text-tertiary);
+    font-size: var(--fs-xs);
+  }
+
+  .axis span {
+    position: absolute;
+    top: 0.375rem;
+    left: var(--x);
+    transform: translateX(-50%);
+    white-space: nowrap;
+  }
+
+  .axis span[data-align='start'] {
+    transform: none;
+  }
+
+  .axis span[data-align='end'] {
+    transform: translateX(-100%);
+  }
+</style>

@@ -67,6 +67,27 @@ export interface Session {
   abilities: GuildAbilities | null;
   /** Epoch milliseconds the role ids and admin flag were last read from Discord. */
   actorFetchedAt: number;
+  /**
+   * Guild ids this raider picked before, most recent first, capped at RECENT_GUILDS.
+   * Ids only: the names come back with Discord's guild list on the one page that shows
+   * them, and duplicating them here would grow the cookie for nothing.
+   *
+   * Added without a version bump because an older cookie reading undefined here means
+   * an empty history, which is the correct answer for a session that predates the
+   * field, not a silently withdrawn capability.
+   */
+  recentGuildIds?: string[];
+}
+
+/** How many picks back the guild picker remembers. */
+const RECENT_GUILDS = 5;
+
+/**
+ * The picked guild moved to the front, with any earlier appearance dropped so a guild
+ * cannot hold two places in the history.
+ */
+export function rememberGuild(recent: string[] | undefined, guildId: string): string[] {
+  return [guildId, ...(recent ?? []).filter((id) => id !== guildId)].slice(0, RECENT_GUILDS);
 }
 
 const IV_BYTES = 12;
@@ -142,6 +163,7 @@ export function newSession(
     | 'guildAdmin'
     | 'abilities'
     | 'actorFetchedAt'
+    | 'recentGuildIds'
   >,
 ): Session {
   return {
@@ -152,6 +174,7 @@ export function newSession(
     guildAdmin: false,
     abilities: null,
     actorFetchedAt: 0,
+    recentGuildIds: [],
     ...fields,
   };
 }

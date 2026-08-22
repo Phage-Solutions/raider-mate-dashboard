@@ -33,6 +33,15 @@ export class ServiceError extends Error {
     return this.status === 403;
   }
 
+  /**
+   * The guild does not hold the tier this read needs. Distinct from 403 on purpose:
+   * nobody in the guild may read it, and the fix is a subscription rather than a role,
+   * so the page shows an upsell rather than an apology.
+   */
+  get isPaymentRequired(): boolean {
+    return this.status === 402;
+  }
+
   /** The shared key was rejected. A dashboard misconfiguration, never the raider. */
   get isUnauthorized(): boolean {
     return this.status === 401;

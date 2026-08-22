@@ -3,7 +3,12 @@ import type { APIRoute } from 'astro';
 import { fetchGuildAbilities } from '../../lib/capabilities';
 import { cookiesSecure, sessionSecret } from '../../lib/config';
 import { fetchGuildRoleIds, fetchGuilds } from '../../lib/discord-oauth';
-import { sealSession, SESSION_COOKIE, sessionCookieOptions } from '../../lib/session';
+import {
+  rememberGuild,
+  sealSession,
+  SESSION_COOKIE,
+  sessionCookieOptions,
+} from '../../lib/session';
 
 export const prerender = false;
 
@@ -50,6 +55,7 @@ export const POST: APIRoute = async ({ request, cookies, locals, redirect }) => 
         guildAdmin: guild.admin,
         abilities,
         actorFetchedAt: Date.now(),
+        recentGuildIds: rememberGuild(session.recentGuildIds, guild.id),
       },
       sessionSecret,
     ),

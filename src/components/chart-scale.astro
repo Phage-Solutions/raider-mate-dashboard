@@ -1,0 +1,47 @@
+---
+interface Tick {
+  label: string;
+  /** How far up the plot this sits, 0 at the bottom. */
+  pct: number;
+}
+
+interface Props {
+  ticks: Tick[];
+}
+
+const { ticks } = Astro.props;
+---
+
+{
+  /*
+   * The y-axis, in HTML over the plot rather than inside it. Both charts stretch their
+   * SVG to the panel width, and SVG text stretches with it: on a phone the labels would
+   * be four pixels tall and leaning. The gridlines themselves stay in the drawing, where
+   * they can stretch without anyone noticing.
+   */
+}
+<div class="scale" aria-hidden="true">
+  {ticks.map((tick) => <span style={`--pct: ${tick.pct}%`}>{tick.label}</span>)}
+</div>
+
+<style>
+  .scale {
+    position: absolute;
+    inset: 0 auto 0 0;
+    width: var(--chart-gutter, 2.5rem);
+    pointer-events: none;
+  }
+
+  .scale span {
+    position: absolute;
+    right: 0.5rem;
+    bottom: var(--pct);
+    /* Seated on its own gridline rather than hanging under it. */
+    transform: translateY(50%);
+    color: var(--text-tertiary);
+    font-size: var(--fs-xs);
+    font-variant-numeric: tabular-nums;
+    line-height: 1;
+    white-space: nowrap;
+  }
+</style>
