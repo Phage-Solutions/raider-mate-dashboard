@@ -12,6 +12,15 @@ Sections are `Added`, `Changed`, `Deprecated`, `Removed`, `Fixed`, `Security`.
 
 ## [Unreleased]
 
+## [0.6.0] - 2026-08-22
+
+### Changed
+
+- **Container images now publish under `ghcr.io/raider-mate/raider-mate-dashboard`**,
+  following the move of the repository to the Raider Mate organisation. Older tags stay
+  where they are, under `ghcr.io/phage-solutions/raider-mate-dashboard`; update your
+  compose file or pull command before the next upgrade.
+
 ## [0.5.0] - 2026-08-22
 
 ### Added
